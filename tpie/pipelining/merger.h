@@ -66,7 +66,7 @@ public:
 	// and runLength items are read from each stream (unless end of stream
 	// occurs earlier).
 	// Precondition: !can_pull()
-	void reset(array<compressed_stream<T> > & inputs, stream_size_type runLength) {
+	void reset(array<file_stream<T> > & inputs, stream_size_type runLength) {
 		this->runLength = runLength;
 		tp_assert(pq.empty(), "Reset before we are done");
 		in.swap(inputs);
@@ -113,7 +113,7 @@ public:
 
 private:
 	internal_priority_queue<std::pair<T, size_t>, predwrap> pq;
-	array<compressed_stream<T> > in;
+	array<file_stream<T> > in;
 	array<stream_size_type> itemsRead;
 	stream_size_type runLength;
 };
