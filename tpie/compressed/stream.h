@@ -324,7 +324,7 @@ private:
 template <typename T> class stack;
 
 namespace ami {
-	template <typename T> class cstream;
+	template <typename T> class stream;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
