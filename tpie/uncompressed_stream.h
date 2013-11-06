@@ -19,7 +19,6 @@
 #ifndef TPIE_UNCOMPRESSED_STREAM_H
 #define TPIE_UNCOMPRESSED_STREAM_H
 #include <tpie/tempname.h>
-#include <tpie/file.h>
 #include <tpie/memory.h>
 #include <tpie/file_stream_base.h>
 ///////////////////////////////////////////////////////////////////////////////
