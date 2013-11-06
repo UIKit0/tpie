@@ -21,8 +21,6 @@ set (HEADERS
 		disjoint_sets.h
 		exception.h
 		err.h
-		file.h
-		file_base.h
 		file_base_crtp.h
 		file_stream.h
 		file_stream_base.h
@@ -144,7 +142,6 @@ set (SOURCES
 	compressed/stream_base.cpp
 	compressed/thread.cpp
 	cpu_timer.cpp
-	file_base.cpp
 	file_count.cpp
 	file_stream_base.cpp
 	execution_time_predictor.cpp
