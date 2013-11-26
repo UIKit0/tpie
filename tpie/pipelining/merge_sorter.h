@@ -25,8 +25,112 @@
 #include <tpie/pipelining/exception.h>
 #include <tpie/dummy_progress.h>
 #include <tpie/array_view.h>
+#include <tpie/compressed/stream.h>
 
 namespace tpie {
+
+namespace bits {
+
+///////////////////////////////////////////////////////////////////////////////
+/// \brief  Class to maintain the positions where sorted runs start.
+///
+/// The run_positions object has the following states:
+/// * closed
+/// * open
+/// * open, evacuated
+/// * open, final
+/// * open, evacuated, final
+///
+/// When open and not evacuated, the memory usage is two stream blocks
+/// (as reported by memory_usage()).
+/// When evacuated, the memory usage is nothing.
+///
+/// The object remembers the merge tree depth `d`.
+/// Initially, d = 1, and only set_position may be called with mergeLevel = 0
+/// and runNumbers always increasing by one.
+/// When next_level is called, d increases to 2, and now set_position may be
+/// called with mergeLevel = 1, and get_position may be called with
+/// mergeLevel = 0, runNumber ranging from 0 and upwards in each case.
+/// When final_level is called, the restriction on the runNumber order is
+/// lifted, but set_position may only be called with mergeLevel = d-1 and
+/// runNumber = 0. get_position may be called with mergeLevel = d-2 and any
+/// runNumber in any order.
+///////////////////////////////////////////////////////////////////////////////
+class run_positions {
+public:
+	run_positions();
+	~run_positions();
+
+	///////////////////////////////////////////////////////////////////////////
+	/// Memory usage when open and not evacuated.
+	///////////////////////////////////////////////////////////////////////////
+	static memory_size_type memory_usage();
+
+	///////////////////////////////////////////////////////////////////////////
+	/// Switch from `closed` to `open` state.
+	///////////////////////////////////////////////////////////////////////////
+	void open();
+
+	///////////////////////////////////////////////////////////////////////////
+	/// Switch from any state to `closed` state.
+	///////////////////////////////////////////////////////////////////////////
+	void close();
+
+	///////////////////////////////////////////////////////////////////////////
+	/// Switch from any state to the corresponding evacuated state.
+	///////////////////////////////////////////////////////////////////////////
+	void evacuate();
+
+	///////////////////////////////////////////////////////////////////////////
+	/// Switch from any state to the corresponding non-evacuated state.
+	///////////////////////////////////////////////////////////////////////////
+	void unevacuate();
+
+	///////////////////////////////////////////////////////////////////////////
+	/// Go to next level in the merge heap - see class docstring.
+	///////////////////////////////////////////////////////////////////////////
+	void next_level();
+
+	///////////////////////////////////////////////////////////////////////////
+	/// Set this to be the final level in the merge heap - see class docstring.
+	///////////////////////////////////////////////////////////////////////////
+	void final_level(memory_size_type fanout);
+
+	///////////////////////////////////////////////////////////////////////////
+	/// Store a stream position - see class docstring.
+	///////////////////////////////////////////////////////////////////////////
+	void set_position(memory_size_type mergeLevel, memory_size_type runNumber, stream_position pos);
+
+	///////////////////////////////////////////////////////////////////////////
+	/// Fetch a stream position - see class docstring.
+	///////////////////////////////////////////////////////////////////////////
+	stream_position get_position(memory_size_type mergeLevel, memory_size_type runNumber);
+
+private:
+	/** Object state: Whether we are open. */
+	bool m_open;
+	/** Object state: Whether we are evacuated. */
+	bool m_evacuated;
+	/** Object state: Whether we are in the final merge level. */
+	bool m_final;
+
+	/** The merge tree depth, denoted `d`. */
+	memory_size_type m_levels;
+
+	memory_size_type m_runs[2];
+	temp_file m_positionsFile[2];
+	stream_position m_positionsPosition[2];
+	compressed_stream<stream_position> m_positions[2];
+
+	/** If final: the stream positions in mergeLevel = d-2. */
+	array<stream_position> m_finalPositions;
+	/** If final: Whether the (d-1, 0)-position is stored. */
+	bool m_finalExtraSet;
+	/** If finalExtraSet: The (d-1, 0)-position. */
+	stream_position m_finalExtra;
+};
+
+} // namespace bits
 
 ///////////////////////////////////////////////////////////////////////////////
 /// Merge sorting consists of three phases.
@@ -69,7 +173,7 @@ public:
 		p.fanout = p.finalFanout = fanout;
 		m_parametersSet = true;
 		log_debug() << "Manually set merge sort run length and fanout\n";
-		log_debug() << "Run length =       " << p.runLength << " (uses memory " << (p.runLength*sizeof(T) + file_stream<T>::memory_usage()) << ")\n";
+		log_debug() << "Run length =       " << p.runLength << " (uses memory " << (p.runLength*sizeof(T) + compressed_stream<T>::memory_usage()) << ")\n";
 		log_debug() << "Fanout =           " << p.fanout << " (uses memory " << fanout_memory_usage(p.fanout) << ")" << std::endl;
 	}
 
@@ -217,11 +321,13 @@ public:
 			initialize_final_merger(0, runCount);
 		} else if (m_state == stMerge) {
 			log_debug() << "Evacuate merge_sorter (" << this << ") before merge in external reporting mode (noop)" << std::endl;
+			m_runPositions.evacuate();
 			return;
 		}
 		log_debug() << "Evacuate merge_sorter (" << this << ") before reporting in external reporting mode" << std::endl;
 		m_merger.reset();
 		m_evacuated = true;
+		m_runPositions.evacuate();
 	}
 
 	inline void evacuate_before_merging() {
@@ -247,7 +353,7 @@ private:
 			log_debug() << "Write " << m_currentRunItemCount << " items to run file " << m_finishedRuns << std::endl;
 		else if (m_finishedRuns == 10)
 			log_debug() << "..." << std::endl;
-		file_stream<T> fs;
+		compressed_stream<T> fs;
 		open_run_file_write(fs, 0, m_finishedRuns);
 		for (memory_size_type i = 0; i < m_currentRunItemCount; ++i) {
 			fs.write(m_currentRunItems[i]);
@@ -265,7 +371,7 @@ private:
 		// many file_streams open at the same time.
 
 		// Open files and seek to the first item in the run.
-		array<file_stream<T> > in(runCount);
+		array<compressed_stream<T> > in(runCount);
 		for (memory_size_type i = 0; i < runCount; ++i) {
 			open_run_file_read(in[i], mergeLevel, runNumber+i);
 		}
@@ -286,6 +392,8 @@ private:
 		m_finalMergeInitialized = true;
 		m_finalMergeLevel = finalMergeLevel;
 		m_finalRunCount = runCount;
+		m_runPositions.next_level();
+		m_runPositions.final_level(p.fanout);
 		if (runCount > p.finalFanout) {
 			log_debug() << "Run count in final level (" << runCount << ") is greater than the final fanout (" << p.finalFanout << ")\n";
 
@@ -304,8 +412,9 @@ private:
 public:
 	inline void reinitialize_final_merger() {
 		tp_assert(m_finalMergeInitialized, "reinitialize_final_merger while !m_finalMergeInitialized");
+		m_runPositions.unevacuate();
 		if (m_finalMergeSpecialRunNumber != std::numeric_limits<memory_size_type>::max()) {
-			array<file_stream<T> > in(p.finalFanout);
+			array<compressed_stream<T> > in(p.finalFanout);
 			for (memory_size_type i = 0; i < p.finalFanout-1; ++i) {
 				open_run_file_read(in[i], m_finalMergeLevel, i);
 				log_debug() << "Run " << i << " is at offset " << in[i].offset() << " and has size " << in[i].size() << std::endl;
@@ -341,7 +450,7 @@ private:
 	template <typename ProgressIndicator>
 	inline memory_size_type merge_runs(memory_size_type mergeLevel, memory_size_type runNumber, memory_size_type runCount, ProgressIndicator & pi) {
 		initialize_merger(mergeLevel, runNumber, runCount);
-		file_stream<T> out;
+		compressed_stream<T> out;
 		memory_size_type nextRunNumber = runNumber/p.fanout;
 		open_run_file_write(out, mergeLevel+1, nextRunNumber);
 		while (m_merger.can_pull()) {
@@ -355,6 +464,8 @@ private:
 	/// Phase 2: Merge all runs and initialize merger for public pulling.
 	///////////////////////////////////////////////////////////////////////////
 	inline void prepare_pull(typename Progress::base & pi) {
+		m_runPositions.unevacuate();
+
 		// Compute merge depth (number of passes over data).
 		int treeHeight= static_cast<int>(ceil(log(static_cast<float>(m_finishedRuns)) /
 											  log(static_cast<float>(p.fanout))));
@@ -364,6 +475,7 @@ private:
 		memory_size_type runCount = m_finishedRuns;
 		while (runCount > p.fanout) {
 			log_debug() << "Merge " << runCount << " runs in merge level " << mergeLevel << '\n';
+			m_runPositions.next_level();
 			memory_size_type newRunCount = 0;
 			for (memory_size_type i = 0; i < runCount; i += p.fanout) {
 				memory_size_type n = std::min(runCount-i, p.fanout);
@@ -411,6 +523,7 @@ public:
 			return el;
 		} else {
 			if (m_evacuated) reinitialize_final_merger();
+			m_runPositions.close();
 			return m_merger.pull();
 		}
 	}
@@ -421,7 +534,8 @@ public:
 
 	static memory_size_type memory_usage_phase_1(const sort_parameters & params) {
 		return params.runLength * sizeof(T)
-			+ file_stream<T>::memory_usage()
+			+ bits::run_positions::memory_usage()
+			+ compressed_stream<T>::memory_usage()
 			+ 2*params.fanout*sizeof(temp_file);
 	}
 
@@ -508,16 +622,16 @@ private:
 		// Run length: determined by the number of items we can hold in memory.
 		// Fanout: unbounded
 
-		memory_size_type streamMemory = file_stream<T>::memory_usage();
+		memory_size_type streamMemory = compressed_stream<T>::memory_usage();
 		memory_size_type tempFileMemory = 2*p.fanout*sizeof(temp_file);
 
 		log_debug() << "Phase 1: " << p.memoryPhase1 << " b available memory; " << streamMemory << " b for a single stream; " << tempFileMemory << " b for temp_files\n";
-		memory_size_type min_m1 = 128*1024 / sizeof(T) + streamMemory + tempFileMemory;
+		memory_size_type min_m1 = 128*1024 / sizeof(T) + bits::run_positions::memory_usage() + streamMemory + tempFileMemory;
 		if (p.memoryPhase1 < min_m1) {
 			log_warning() << "Not enough phase 1 memory for 128 KB items and an open stream! (" << p.memoryPhase1 << " < " << min_m1 << ")\n";
 			p.memoryPhase1 = min_m1;
 		}
-		p.runLength = (p.memoryPhase1 - streamMemory - tempFileMemory)/sizeof(T);
+		p.runLength = (p.memoryPhase1 - bits::run_positions::memory_usage() - streamMemory - tempFileMemory)/sizeof(T);
 
 		p.internalReportThreshold = (std::min(p.memoryPhase1,
 											  std::min(p.memoryPhase2,
@@ -575,7 +689,8 @@ private:
 	///////////////////////////////////////////////////////////////////////////
 	static inline memory_size_type fanout_memory_usage(memory_size_type fanout) {
 		return merger<T, pred_t>::memory_usage(fanout) // accounts for the `fanout' open streams
-			+ file_stream<T>::memory_usage() // output stream
+			+ bits::run_positions::memory_usage()
+			+ compressed_stream<T>::memory_usage() // output stream
 			+ 2*sizeof(temp_file); // merge_sorter::m_runFiles
 	}
 
@@ -627,24 +742,25 @@ private:
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Open a new run file and seek to the end.
 	///////////////////////////////////////////////////////////////////////////
-	inline void open_run_file_write(file_stream<T> & fs, memory_size_type mergeLevel, memory_size_type runNumber) {
+	void open_run_file_write(compressed_stream<T> & fs, memory_size_type mergeLevel, memory_size_type runNumber) {
 		// see run_file_index comment about runNumber
 
 		memory_size_type idx = run_file_index(mergeLevel, runNumber);
 		if (runNumber < p.fanout) m_runFiles[idx].free();
-		fs.open(m_runFiles[idx], access_read_write);
-		fs.seek(0, file_stream<T>::end);
+		fs.open(m_runFiles[idx], access_read_write, 0, access_sequential, compression_normal);
+		fs.seek(0, file_stream_base::end);
+		m_runPositions.set_position(mergeLevel, runNumber, fs.get_position());
 	}
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Open an existing run file and seek to the correct offset.
 	///////////////////////////////////////////////////////////////////////////
-	inline void open_run_file_read(file_stream<T> & fs, memory_size_type mergeLevel, memory_size_type runNumber) {
+	void open_run_file_read(compressed_stream<T> & fs, memory_size_type mergeLevel, memory_size_type runNumber) {
 		// see run_file_index comment about runNumber
 
 		memory_size_type idx = run_file_index(mergeLevel, runNumber);
-		fs.open(m_runFiles[idx], access_read);
-		fs.seek(calculate_run_length(p.runLength, p.fanout, mergeLevel) * (runNumber / p.fanout), file_stream<T>::beginning);
+		fs.open(m_runFiles[idx], access_read, 0, access_sequential, compression_normal);
+		fs.set_position(m_runPositions.get_position(mergeLevel, runNumber));
 	}
 
 	enum state_type {
@@ -663,11 +779,12 @@ private:
 
 	array<temp_file> m_runFiles;
 
+	bits::run_positions m_runPositions;
+
 	// Number of runs already written to disk.
 	// On 32-bit systems, we could in principle support more than 2^32 finished runs,
 	// but keeping this as a memory_size_type is nicer when doing the actual merges.
 	memory_size_type m_finishedRuns;
-
 	// current run buffer. size 0 before begin(), size runLength after begin().
 	array<T> m_currentRunItems;
 
