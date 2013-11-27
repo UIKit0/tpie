@@ -118,6 +118,7 @@ set (HEADERS
 		stats.h
 		types.h
 		tempname.h
+		uncompressed_stream.h
 		unused.h
 		util.h
 		array.h
