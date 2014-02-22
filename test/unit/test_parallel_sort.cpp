@@ -50,24 +50,14 @@ struct test_pi<false> {
 
 template<bool Progress, size_t min_size>
 bool basic1(const size_t elements, typename progress_types<Progress>::base * pi) {
-	typedef progress_types<Progress> P;
-
 	const size_t stepevery = std::max(static_cast<size_t>(1), elements / 16);
 	boost::rand48 prng(42);
 	std::vector<int> v1(elements);
 	std::vector<int> v2(elements);
 
-	typename P::fp fp(pi);
-	typename P::sub gen_p(fp, "Generate", TPIE_FSI, elements, "Generate");
-	typename P::sub std_p(fp, "std::sort", TPIE_FSI, elements, "std::sort");
-	typename P::sub par_p(fp, "parallel_sort", TPIE_FSI, elements, "parallel_sort");
-	fp.init();
-
-	gen_p.init(elements/stepevery);
 	size_t nextstep = stepevery;
 	for (size_t i = 0; i < elements; ++i) {
 		if (i == nextstep) {
-			gen_p.step();
 			nextstep += stepevery;
 		}
 		if (stdsort)
@@ -75,17 +65,15 @@ bool basic1(const size_t elements, typename progress_types<Progress>::base * pi)
 		else
 			v1[i] = prng();
 	}
-	gen_p.done();
 
 	{
 		boost::posix_time::ptime start=boost::posix_time::microsec_clock::local_time();
-		parallel_sort_impl<std::vector<int>::iterator, std::less<int>, Progress, min_size > s(&par_p);
+		parallel_sort_impl<std::vector<int>::iterator, std::less<int>, Progress, min_size > s(pi);
 		s(v2.begin(), v2.end());
 		boost::posix_time::ptime end=boost::posix_time::microsec_clock::local_time();
 		tpie::log_info() << "Parallel sort took " << end-start << std::endl;
 	}
 
-	std_p.init(1);
 	if (stdsort) {
 		boost::posix_time::ptime start=boost::posix_time::microsec_clock::local_time();
 		#ifdef TPIE_TEST_PARALLEL_SORT
@@ -96,9 +84,6 @@ bool basic1(const size_t elements, typename progress_types<Progress>::base * pi)
 		boost::posix_time::ptime end=boost::posix_time::microsec_clock::local_time();
 		tpie::log_info() << "std::sort took " << end-start << std::endl;
 	}
-	std_p.done();
-
-	fp.done();
 
 	if (stdsort && v1 != v2) {
 		tpie::log_error() << "std::sort and parallel_sort disagree" << std::endl;
@@ -294,7 +279,7 @@ struct sort_tester {
 };
 
 int main(int argc, char **argv) {
-	stdsort = true;
+	stdsort = false;
 	return tpie::tests(argc, argv)
 		.test(sort_tester<2>(), "basic1", "n", 1024*1024)
 		.test(sort_tester<8>(), "basic2", "n", 8*8)

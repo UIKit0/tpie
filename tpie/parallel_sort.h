@@ -263,7 +263,11 @@ public:
 		boost::uint64_t prev_work_estimate = 0;
 		boost::mutex::scoped_lock lock(progress.mutex);
 		while (progress.work_estimate < progress.total_work_estimate) {
-			if (progress.pi && progress.work_estimate > prev_work_estimate) progress.pi->step(progress.work_estimate - prev_work_estimate);
+			if (progress.pi && progress.work_estimate > prev_work_estimate) {
+				stream_size_type steps = progress.work_estimate - prev_work_estimate;
+				log_debug() << "Stepping " << steps << std::endl;
+				progress.pi->step(steps);
+			}
 			prev_work_estimate = progress.work_estimate;
 			progress.cond.wait(lock);
 		}
