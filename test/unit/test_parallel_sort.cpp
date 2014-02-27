@@ -273,7 +273,7 @@ bool large_item_test_chooser(size_t mb, size_t itemSize) {
 template <size_t stdsort_limit>
 struct sort_tester {
 	bool operator()(size_t n) {
-		progress_indicator_arrow pi("Sort", n, tpie::log_info());
+		progress_indicator_arrow pi("Sort", n, std::cerr);
 		return basic1<true, stdsort_limit>(n, &pi);
 	}
 };
