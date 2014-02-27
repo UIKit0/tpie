@@ -24,28 +24,24 @@ namespace {
 
 class ptime {
 public:
-	ptime()
-		: m_ptime(boost::posix_time::not_a_date_time)
-	{
-	}
+	ptime() {}
 
 	static ptime now() {
-		return ptime(boost::posix_time::microsec_clock::universal_time());
+		return ptime(clock::now());
 	}
 
 	static double seconds(const ptime & t1, const ptime & t2) {
-		if (t1.m_ptime.is_special() || t2.m_ptime.is_special()) {
-			tp_assert(false, "ptime::seconds: Special ptime");
-			return 0.0;
-		}
-		return (t2.m_ptime - t1.m_ptime).total_microseconds() / 1000000.0;
+		return boost::chrono::duration_cast<boost::chrono::microseconds>(t2.m_time - t1.m_time).count() / 1000000.0;
 	}
 
 private:
-	boost::posix_time::ptime m_ptime;
+	typedef boost::chrono::high_resolution_clock clock;
+	typedef clock::time_point time_point;
 
-	ptime(boost::posix_time::ptime ptime)
-		: m_ptime(ptime)
+	time_point m_time;
+
+	ptime(time_point time)
+		: m_time(time)
 	{
 	}
 };
