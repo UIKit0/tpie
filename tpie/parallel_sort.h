@@ -71,11 +71,12 @@ private:
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Guesstimate how much work a sort uses.
+	///
+	/// Should obey sortWork(n) = n + 2*sortWork(n/2).
 	///////////////////////////////////////////////////////////////////////////
 	static inline boost::uint64_t sortWork(boost::uint64_t n) {
 		return static_cast<uint64_t>(
-			log(static_cast<double>(n)) * static_cast<double>(n) * 1.8
-			/ log(static_cast<double>(2)));
+			log(static_cast<double>(n)) * static_cast<double>(n) * 1.8 / log(2.0));
 	}
 
 	///////////////////////////////////////////////////////////////////////////
