@@ -27,6 +27,8 @@
 // XXX remove when init_segment is removed
 #include <tpie/backtrace.h>
 
+#include <tpie/pipelining/node.h>
+
 namespace tpie {
 
 namespace pipelining {
