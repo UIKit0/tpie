@@ -20,6 +20,9 @@
 #ifndef __TPIE_PIPELINING_SORT_PARAMETERS_H__
 #define __TPIE_PIPELINING_SORT_PARAMETERS_H__
 
+#include <tpie/types.h>
+#include <iostream>
+
 namespace tpie {
 
 struct sort_parameters {
