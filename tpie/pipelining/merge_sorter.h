@@ -20,6 +20,7 @@
 #ifndef __TPIE_PIPELINING_MERGE_SORTER_H__
 #define __TPIE_PIPELINING_MERGE_SORTER_H__
 
+#include <tpie/tpie.h>
 #include <tpie/pipelining/sort_parameters.h>
 #include <tpie/pipelining/merger.h>
 #include <tpie/pipelining/exception.h>
@@ -55,12 +56,14 @@ public:
 
 	static const memory_size_type maximumFanout = 250; // This is the max number of runs to merge at a time when running a k-way merge.
 	static const memory_size_type bufferCount = 2; // This is the number of buffers to be used during phase 1
+	const memory_size_type blockSize;
 
 	///////////////////////////////////////////////////////////////////////////////
 	/// \brief Create a new merger_sorter object with the given predicate
 	///////////////////////////////////////////////////////////////////////////////
 	merge_sorter(pred_t pred = pred_t())
-	: m_parameters_set(false)
+	: blockSize(get_block_size())
+	, m_parameters_set(false)
 	, m_evacuated(false)
 	, m_pred(pred)
 	, m_reporting_mode(REPORTING_MODE_EXTERNAL)
@@ -240,6 +243,12 @@ public:
 			}
 
 			tpie::parallel_sort(run->begin(), run->end(), m_pred);
+
+			// calculate phi for this run
+			m_phi.push_back(std::vector<T>());
+			std::vector<T> & phi = m_phi.back();
+			for(memory_size_type i = 0; i < run->size(); i += blockSize) phi.push_back((*run)[i]);
+
 			m_sortedBuffers.push(run);
 		}
 	}
@@ -592,6 +601,7 @@ private:
 	bits::blocking_queue<run_container_type *> m_sortedBuffers; // the buffers that are to be consumed by the write thread
 
 	std::deque<temp_file> m_runFiles;
+	std::deque<std::vector<T> > m_phi; // contains vectors of the smallest elements of each block in each run
 
 	// phase 1 specific
 	boost::thread m_SortThread; // The thread in phase 1 used to sort run formations
