@@ -230,10 +230,10 @@ public:
 		maybe_calculate_parameters();
 	}
 
-	void phase1_sort() {
+	void phase1_sort_thread() {
 		for(memory_size_type i = 1; i < bufferCount; ++i)
 			m_emptyBuffers.push(tpie_new<run_container_type>(m_parameters.runLength));
-		m_WriteThread = boost::thread(boost::bind(&merge_sorter::phase1_write, this));
+		m_IOThread = boost::thread(boost::bind(&merge_sorter::io_thread, this));
 
 		while(true) {
 			run_container_type * run = m_fullBuffers.pop();
@@ -253,7 +253,7 @@ public:
 		}
 	}
 
-	void phase1_write() {
+	void io_thread() {
 		while(true) {
 			run_container_type * run = m_sortedBuffers.pop();
 			if(run == NULL) {
@@ -281,7 +281,7 @@ public:
 		m_state = STATE_RUN_FORMATION;
 
 		m_currentRun = tpie_new<run_container_type>(m_parameters.runLength);
-		m_SortThread = boost::thread(boost::bind(&merge_sorter::phase1_sort, this)); // perform the rest of the initialization in the sort thread
+		m_sortThread = boost::thread(boost::bind(&merge_sorter::phase1_sort_thread, this)); // perform the rest of the initialization in the sort thread
 	}
 
 	///////////////////////////////////////////////////////////////////////////
@@ -350,8 +350,8 @@ public:
 			m_fullBuffers.push(NULL);
 		}
 
-		m_SortThread.join();
-		m_WriteThread.join();
+		m_sortThread.join();
+		m_IOThread.join();
 		m_state = STATE_MERGE;
 
 		while(!m_emptyBuffers.empty())
@@ -604,8 +604,8 @@ private:
 	std::deque<std::vector<T> > m_phi; // contains vectors of the smallest elements of each block in each run
 
 	// phase 1 specific
-	boost::thread m_SortThread; // The thread in phase 1 used to sort run formations
-	boost::thread m_WriteThread; // The thread in phase 1 used to write run formations to file
+	boost::thread m_sortThread; // The thread in phase 1 used to sort run formations
+	boost::thread m_IOThread; // The thread in phase 1 used to write run formations to file
 
 	// phase 3 specific
 	merger<T, pred_t> m_merger;
