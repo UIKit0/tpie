@@ -25,7 +25,8 @@
 /// \brief Blocking queue based on std::queue and boost
 ////////////////////////////////////////////////////////////////////////////////
 #include <queue>
-#include <boost/thread/lockable_concepts.hpp> 
+#include <boost/thread/lockable_concepts.hpp>
+#include <boost/thread/condition_variable.hpp>
 
 namespace tpie {
 

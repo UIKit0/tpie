@@ -22,14 +22,12 @@
 
 #include <tpie/tpie.h>
 #include <tpie/pipelining/sort_parameters.h>
-#include <tpie/pipelining/exception.h>
-#include <tpie/dummy_progress.h>
-#include <tpie/array_view.h>
+#include <tpie/file_stream.h>
+#include <tpie/tempname.h>
 #include <tpie/blocking_queue.h>
 #include <tpie/parallel_sort.h>
 #include <tpie/internal_priority_queue.h>
-#include <boost/random/uniform_01.hpp>
-#include <boost/random/mersenne_twister.hpp>
+#include <tpie/internal_vector.h>
 #include <deque>
 
 namespace tpie {
@@ -237,8 +235,6 @@ private:
 
 	static memory_size_type fanout_memory_usage(memory_size_type fanout) {
 		return sizeof(merge_sorter<T, UseProgress, pred_t>)
-		- sizeof(merger<T, pred_t>)
-		+ merger<T, pred_t>::memory_usage(fanout)
 		+ file_stream<T>::memory_usage();
 	}
 public:
