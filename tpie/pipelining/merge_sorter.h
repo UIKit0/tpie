@@ -28,6 +28,7 @@
 #include <tpie/array_view.h>
 #include <tpie/blocking_queue.h>
 #include <tpie/parallel_sort.h>
+#include <tpie/internal_priority_queue.h>
 #include <boost/random/uniform_01.hpp>
 #include <boost/random/mersenne_twister.hpp>
 #include <deque>
@@ -63,15 +64,14 @@ public:
 	///////////////////////////////////////////////////////////////////////////////
 	merge_sorter(pred_t pred = pred_t())
 	: blockSize(get_block_size())
-	, m_parameters_set(false)
-	, m_evacuated(false)
+	, m_parametersSet(false)
 	, m_pred(pred)
 	, m_reporting_mode(REPORTING_MODE_EXTERNAL)
 	, m_state(STATE_PARAMETERS)
 	, m_runsPushed(0)
 	, m_itemsPushed(0)
 	, m_itemsPulled(0)
-	, m_merger(pred)
+	, m_nextBlock(0)
 	{
 		m_parameters.memoryPhase1 = 0;
 		m_parameters.memoryPhase2 = 0;
@@ -88,7 +88,7 @@ public:
 		m_parameters.internalReportThreshold = runLength/3;
 		m_parameters.fanout = m_parameters.finalFanout = fanout;
 
-		m_parameters_set = true;
+		m_parametersSet = true;
 	}
 
 private:
@@ -141,7 +141,7 @@ private:
 		///////////////////////////////////////////////////////////////////////////////
 		/// Final
 		///////////////////////////////////////////////////////////////////////////////
-		m_parameters_set = true;
+		m_parametersSet = true;
 	}
 
 	static memory_size_type calculate_fanout(memory_size_type memory) {
@@ -230,6 +230,7 @@ public:
 		maybe_calculate_parameters();
 	}
 
+	// This thread is only used during phase 1 for sorting runs
 	void phase1_sort_thread() {
 		for(memory_size_type i = 1; i < bufferCount; ++i)
 			m_emptyBuffers.push(tpie_new<run_container_type>(m_parameters.runLength));
@@ -253,7 +254,9 @@ public:
 		}
 	}
 
+	// this thread is used during all 3 fases to perform IO operations
 	void io_thread() {
+		// phase 1
 		while(true) {
 			run_container_type * run = m_sortedBuffers.pop();
 			if(run == NULL) {
@@ -270,6 +273,64 @@ public:
 			run->clear();
 			m_emptyBuffers.push(run); // push a new empty buffer
 		}
+
+		temp_file runFile;
+		file_stream<T> out;
+		out.open(runFile, access_write);
+
+		std::vector<file_stream<T>* > in;
+
+		// phase 2 + 3
+
+		bool first = true;
+		T lastItem;
+
+		while(true) {
+			if(!m_fullWriteBuffers.empty()) {
+				run_container_type * top = m_fullWriteBuffers.pop();
+
+				if(top == NULL) {
+					break;
+				}
+
+				if(!first && m_pred(top->front(), lastItem)) { // TODO: Move phi array calculation to this method or the sorter will explode when sorting already sorted sequences
+					out.close();
+					m_runFiles.push_back(runFile);
+					runFile = temp_file();
+					out.open(runFile, access_write);
+
+					for(typename std::vector<file_stream<T>* >::iterator i = in.begin(); i != in.end(); ++i) {
+						(**i).close();
+						tpie_delete(*i);
+					}
+					in.clear();
+				}
+
+				out.write(top->begin(), top->end());
+				top->clear();
+				m_emptyWriteBuffers.push(top);
+
+				continue;
+			}
+
+			if(!m_emptyReadBuffers.empty() && !m_readJobs.empty()) {
+				run_container_type * top = m_emptyReadBuffers.pop();
+				memory_size_type run = m_readJobs.pop();
+
+				while(in.size() <= run) {
+					file_stream<T> * stream = tpie_new<file_stream<T> >();
+					stream->open(m_runFiles[in.size()-1]);
+					in.push_back(stream);
+				}
+
+				for(memory_size_type i = 0; i < blockSize; ++i)
+					top->push_back(in[run]->read());
+				m_fullReadBuffers.push(top);
+				continue;
+			}
+
+			boost::this_thread::yield();
+		}
 	}
 
 	///////////////////////////////////////////////////////////////////////////
@@ -277,7 +338,7 @@ public:
 	///////////////////////////////////////////////////////////////////////////
 	void begin() {
 		log_debug() << "Beginning phase 1" << std::endl;
-		tp_assert(m_parameters_set, "Parameters have not been set");
+		tp_assert(m_parametersSet, "Parameters have not been set");
 		m_state = STATE_RUN_FORMATION;
 
 		m_currentRun = tpie_new<run_container_type>(m_parameters.runLength);
@@ -350,10 +411,9 @@ public:
 			m_fullBuffers.push(NULL);
 		}
 
-		m_sortThread.join();
-		m_IOThread.join();
 		m_state = STATE_MERGE;
 
+		m_sortThread.join();
 		while(!m_emptyBuffers.empty())
 			tpie_delete(m_emptyBuffers.pop());
 	}
@@ -368,31 +428,54 @@ private:
 			n = m_runFiles.size();
 		}
 
-		// open file streams
-		temp_file runFile;
-		file_stream<T> out;
-		out.open(runFile, access_write);
-
-		array<file_stream<T> > input(n);
+		std::vector<std::pair<T, memory_size_type> > sigma;
 		for(memory_size_type i = 0; i < n; ++i) {
-			input[i].open(m_runFiles[i], access_read);
+			for(typename std::vector<T>::iterator j = m_phi[i].begin(); j < m_phi[i].end(); ++j) {
+				sigma.push_back(std::make_pair(*j, i));
+			}
 		}
 
-		// setup merger
-		m_merger.reset(input);
-
-		// empty the streams and tree
-		while(m_merger.can_pull()) {
-			out.write(m_merger.pull());
-			pi.step();
+		tpie::parallel_sort(sigma.begin(), sigma.end(), pair_comparator(m_pred));
+		for(typename std::vector<std::pair<T, memory_size_type> >::iterator i = sigma.begin(); i != sigma.end(); ++i) {
+			m_readJobs.push(i->second);
 		}
+
+		memory_size_type next_block = 0;
+		std::priority_queue<T, std::vector<T>, pred_t> queue;
+		run_container_type * write_buffer = m_emptyWriteBuffers.pop();
+		std::vector<run_container_type *> read_buffers;
+		while(true) {
+			if(next_block == sigma.size()) // all blocks have been processed
+				break;
+
+			do {
+				run_container_type * block = m_fullReadBuffers.pop();
+				pi.step();
+				for(typename run_container_type::iterator i = block->begin(); i != block->end(); ++i) {
+					queue.push(*i);
+				}
+				block->clear();
+				read_buffers.push_back(block);
+				++next_block;
+			} while(!m_fullReadBuffers.empty());
+
+			while(!queue.empty() && !(next_block < sigma.size() && m_pred(sigma[next_block].first, queue.top()))) {
+				write_buffer->push_back(queue.top());
+				if(write_buffer->	size() == blockSize) {
+					m_fullWriteBuffers.push(write_buffer);
+					m_emptyReadBuffers.push(read_buffers.back()); // release a buffer for reading
+					read_buffers.pop_back();
+					write_buffer = m_emptyWriteBuffers.pop();
+				}
+			}
+		}
+
+		m_fullWriteBuffers.push(NULL); // push NULL to indicate a run termination
 
 		for(memory_size_type i = 0; i < n; ++i) {
 			m_runFiles.pop_front();
 		}
 
-		out.close();
-		m_runFiles.push_back(runFile);
 	}
 
 public:
@@ -413,15 +496,24 @@ public:
 				ceil(log(static_cast<float>(m_runFiles.size()))) / ceil(log(static_cast<float>(m_parameters.fanout)))
 			); // the number of merge 'rounds' to be performed.
 
-			pi.init(treeHeight * m_itemsPushed);
+			pi.init(treeHeight * m_itemsPushed / blockSize);
+
+			for(memory_size_type i = 0; i < m_parameters.fanout/2; ++i) {
+				m_emptyWriteBuffers.push(tpie_new<run_container_type>(blockSize));
+				m_emptyReadBuffers.push(tpie_new<run_container_type>(blockSize));
+			}
 
 			while(m_runFiles.size() > m_parameters.finalFanout) {
 				merge_runs(m_parameters.fanout, pi);
 			}
 
-			pi.done();
+			// Release the buffers
+			for(memory_size_type i = 0; i < m_parameters.fanout/2; ++i) {
+				tpie_delete(m_emptyWriteBuffers.pop());
+				tpie_delete(m_emptyReadBuffers.pop());
+			}
 
-			initialize_final_merger();
+			pi.done();
 		}
 
 		m_state = STATE_REPORT;
@@ -441,19 +533,20 @@ public:
 				temp_file runFile;
 				file_stream<T> out;
 				out.open(runFile, access_read_write);
-				for(typename run_container_type::iterator i = m_currentRun->begin(); i != m_currentRun->end(); ++i)
-					out.write(*i);
+				out.write(m_currentRun->begin(), m_currentRun->end());
 				out.close();
 				m_runFiles.push_back(runFile);
+
+				m_phi.push_back(std::vector<T>());
+				std::vector<T> & phi = m_phi.back();
+				for(memory_size_type i = 0; i < m_currentRun->size(); i += blockSize) phi.push_back((*m_currentRun)[i]);
 
 				tpie_delete(m_currentRun);
 			}
 		}
 		else {
-			m_merger.reset();
+			// nothing to do in external reporting mode
 		}
-
-		m_evacuated = true;
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -470,22 +563,6 @@ public:
 	void evacuate_before_reporting() {
 		if(m_state == STATE_REPORT && (m_reporting_mode == REPORTING_MODE_INTERNAL || m_itemsPulled == 0))
 			evacuate();
-	}
-
-	///////////////////////////////////////////////////////////////////////////////
-	/// \brief Reinitialize the merger for phase 3
-	///////////////////////////////////////////////////////////////////////////////
-	void initialize_final_merger() {
-		log_debug() << "Initialize final merger" << std::endl;
-		array<file_stream<T> > inputs(m_runFiles.size());
-		for(memory_size_type i = 0; i < m_runFiles.size(); ++i) {
-			//log_info() << "Opening stream " << i << std::endl;
-			inputs[i].open(m_runFiles[i], access_read);
-		}
-
-		m_evacuated = false;
-
-		m_merger.reset(inputs);
 	}
 
 	///////////////////////////////////////////////////////////////////////////
@@ -510,9 +587,67 @@ public:
 			return el;
 		}
 		else {
-			if(m_evacuated) initialize_final_merger();
+			if(m_itemsPulled == 0) { // first item pulled -> initialization
+				for(memory_size_type i = 0; i < m_parameters.finalFanout/2; ++i) {
+					m_emptyWriteBuffers.push(tpie_new<run_container_type>(blockSize));
+					m_emptyReadBuffers.push(tpie_new<run_container_type>(blockSize));
+				}
+
+				for(memory_size_type i = 0; i < m_runFiles.size(); ++i) {
+					for(typename std::vector<T>::iterator j = m_phi[i].begin(); j < m_phi[i].end(); ++j) {
+						m_sigma.push_back(std::make_pair(*j, i));
+					}
+				}
+
+				tpie::parallel_sort(m_sigma.begin(), m_sigma.end(), pair_comparator(m_pred));
+				for(typename std::vector<std::pair<T, memory_size_type> >::iterator i = m_sigma.begin(); i != m_sigma.end(); ++i) {
+					m_readJobs.push(i->second);
+				}
+			}
+
+			// populate the queue if possible
+			tp_assert(!m_finalQueue.empty() || m_nextBlock < m_sigma.size(), "next_block is sigma.size and the queue is empty.")
+			if(m_finalQueue.empty() || (m_nextBlock < m_sigma.size() && m_pred(m_finalQueue.top(), m_sigma[m_nextBlock].first))) {
+				do {
+					run_container_type * block = m_fullReadBuffers.pop();
+					for(typename run_container_type::iterator i = block->begin(); i != block->end(); ++i) {
+						m_finalQueue.push(*i);
+					}
+					block->clear();
+					m_finalReadBuffers.push(block);
+					++m_nextBlock;
+				}
+				while(!m_fullReadBuffers.empty());
+			}
+
+			if(m_itemsPulled % blockSize == 0) { // this should be fixed for cases where a block is not filled.
+				// release a buffer for reading
+				m_emptyReadBuffers.push(m_finalReadBuffers.front());
+				m_finalReadBuffers.pop();
+			}
 			++m_itemsPulled;
-			return m_merger.pull();
+
+			if(!can_pull()) {
+				tp_assert(m_finalQueue.empty(), "!can_pull() but the internal queue is not empty.")
+
+				m_fullWriteBuffers.push(NULL); // push a run to signal thread termination
+
+				// TODO: m_finalReadBuffers should be empty at this point
+				while(!m_emptyWriteBuffers.empty()) { // the sizes of the two should be equal
+					tpie_delete(m_emptyWriteBuffers.pop());
+					tpie_delete(m_emptyReadBuffers.pop());
+				}
+
+				while(!m_runFiles.empty()) {
+					m_runFiles.pop_front();
+				}
+
+				m_IOThread.join();
+			}
+
+			T item = m_finalQueue.top();
+			m_finalQueue.pop();
+			return item;
 		}
 	}
 
@@ -572,7 +707,24 @@ public:
 	void set_items(stream_size_type) {
 		// TODO: Use for something....
 	}
+
 private:
+	class pair_comparator {
+	public:
+		pair_comparator(pred_t & pred) : m_pred(pred) {}
+
+		bool operator()(const std::pair<T, memory_size_type>& a, const std::pair<T, memory_size_type>& b) {
+			if(m_pred(a.first, b.first))
+				return true;
+			if(m_pred(b.first, a.first))
+				return false;
+			return a.second < b.second;
+		}
+	private:
+		pred_t & m_pred;
+	};
+
+
 	enum reporting_mode {
 		REPORTING_MODE_INTERNAL, // do not write anything to disk. Phase 2 will be a no-op phase and phase 3 is simple array traversal
 		REPORTING_MODE_EXTERNAL
@@ -586,8 +738,7 @@ private:
 	};
 
 	sort_parameters m_parameters;
-	bool m_parameters_set;
-	bool m_evacuated;
+	bool m_parametersSet;
 	pred_t m_pred;
 	reporting_mode m_reporting_mode;
 	state_type m_state;
@@ -596,19 +747,29 @@ private:
 	memory_size_type m_itemsPulled;
 
 	run_container_type * m_currentRun;
-	bits::blocking_queue<run_container_type *> m_emptyBuffers; // the buffers that are to be consumed by the push method
-	bits::blocking_queue<run_container_type *> m_fullBuffers; // the buffers that are to be consumed by the sorting thread
-	bits::blocking_queue<run_container_type *> m_sortedBuffers; // the buffers that are to be consumed by the write thread
 
 	std::deque<temp_file> m_runFiles;
 	std::deque<std::vector<T> > m_phi; // contains vectors of the smallest elements of each block in each run
 
 	// phase 1 specific
+	bits::blocking_queue<run_container_type *> m_emptyBuffers; // the buffers that are to be consumed by the push method
+	bits::blocking_queue<run_container_type *> m_fullBuffers; // the buffers that are to be consumed by the sorting thread
+	bits::blocking_queue<run_container_type *> m_sortedBuffers; // the buffers that are to be consumed by the write thread
 	boost::thread m_sortThread; // The thread in phase 1 used to sort run formations
 	boost::thread m_IOThread; // The thread in phase 1 used to write run formations to file
 
+	// phase 2 specific
+	bits::blocking_queue<memory_size_type> m_readJobs; 
+	bits::blocking_queue<run_container_type *> m_emptyWriteBuffers;
+	bits::blocking_queue<run_container_type *> m_emptyReadBuffers;
+	bits::blocking_queue<run_container_type *> m_fullWriteBuffers;
+	bits::blocking_queue<run_container_type *> m_fullReadBuffers;
+
 	// phase 3 specific
-	merger<T, pred_t> m_merger;
+	memory_size_type m_nextBlock;
+	std::vector<std::pair<T, memory_size_type> > m_sigma;
+	std::priority_queue<T, std::vector<T>, pred_t> m_finalQueue; // TODO: pass pred to the queue somehow
+	std::queue<run_container_type *> m_finalReadBuffers;
 };
 
 } // namespace tpie
