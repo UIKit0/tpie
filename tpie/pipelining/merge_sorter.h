@@ -22,7 +22,6 @@
 
 #include <tpie/tpie.h>
 #include <tpie/pipelining/sort_parameters.h>
-#include <tpie/pipelining/merger.h>
 #include <tpie/pipelining/exception.h>
 #include <tpie/dummy_progress.h>
 #include <tpie/array_view.h>

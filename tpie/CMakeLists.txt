@@ -52,7 +52,6 @@ set (HEADERS
 		pipelining/maintain_order_type.h
 		pipelining/merge.h
 		pipelining/merge_sorter.h
-		pipelining/merger.h
 		pipelining/node.h
 		pipelining/node_map_dump.h
 		pipelining/node_name.h
