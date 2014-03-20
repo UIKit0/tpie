@@ -50,7 +50,80 @@ namespace tpie {
 template <typename T, bool UseProgress, typename pred_t = std::less<T> >
 class merge_sorter {
 private:
-	typedef tpie::internal_vector<T> run_container_type;
+	class internal_offset_vector {
+	public:
+		typedef typename tpie::internal_vector<T>::iterator iterator;
+		typedef typename tpie::internal_vector<T>::iterator const_iterator;
+
+		internal_offset_vector(memory_size_type size) : m_elements(size), m_offset(0) {}
+
+		memory_size_type size() const {
+			return m_elements.size() - m_offset;
+		}
+
+		void clear() {
+			m_offset = 0;
+			m_elements.clear();
+		}
+
+		void push_back(const T & el) {
+			m_elements.push_back(el);
+		}
+
+		bool empty() const {
+			return m_elements.size() == m_offset;
+		}
+
+		void pop_front() {
+			tp_assert(!empty(), "pop_front() when empty");
+			++m_offset;
+		}
+
+		iterator begin() {
+			return m_elements.begin() + m_offset;
+		}
+
+		iterator end() {
+			return m_elements.end();
+		}
+
+		const_iterator begin() const {
+			return m_elements.begin() + m_offset;
+		}
+
+		const_iterator end() const {
+			return m_elements.end();
+		}
+
+		T & operator[](memory_size_type i) {
+			return m_elements[i + m_offset];
+		}
+
+		const T & operator[](memory_size_type i) const {
+			return m_elements[i + m_offset];
+		}
+
+		T & front() {
+			return m_elements[m_offset];
+		}
+
+		const T & front() const {
+			return m_elements[m_offset];
+		}
+
+		T & back() {
+			return m_elements.back();
+		}
+
+		const T & back() const {
+			return m_elements.back();
+		}
+	private:
+		tpie::internal_vector<T> m_elements;
+		memory_size_type m_offset;
+	};
+
+	typedef internal_offset_vector run_container_type;
 public:
 	typedef boost::shared_ptr<merge_sorter> ptr;
 	typedef progress_types<UseProgress> Progress;
@@ -72,6 +145,7 @@ public:
 	, m_itemsPushed(0)
 	, m_itemsPulled(0)
 	, m_nextBlock(0)
+	, m_finalQueue(0, predwrap<run_container_type*>(m_pred)) // set the size to 0 for now
 	{
 		m_parameters.memoryPhase1 = 0;
 		m_parameters.memoryPhase2 = 0;
@@ -232,10 +306,13 @@ public:
 
 	// This thread is only used during phase 1 for sorting runs
 	void phase1_sort_thread() {
+		// initialization
 		for(memory_size_type i = 1; i < bufferCount; ++i)
 			m_emptyBuffers.push(tpie_new<run_container_type>(m_parameters.runLength));
 		m_IOThread = boost::thread(boost::bind(&merge_sorter::io_thread, this));
+		m_finalQueue.resize(m_parameters.finalFanout/2);
 
+		// Sorting
 		while(true) {
 			run_container_type * run = m_fullBuffers.pop();
 			if(run == NULL) {
@@ -276,26 +353,28 @@ public:
 
 		temp_file runFile;
 		file_stream<T> out;
+		std::vector<T> phi;
 		out.open(runFile, access_write);
 
 		std::vector<file_stream<T>* > in;
 
 		// phase 2 + 3
 
-		bool first = true;
-		T lastItem;
+		T * lastItem = NULL;
 
 		while(true) {
 			if(!m_fullWriteBuffers.empty()) {
-				run_container_type * top = m_fullWriteBuffers.pop();
+				run_container_type * block = m_fullWriteBuffers.pop();
 
-				if(top == NULL) {
+				if(block == NULL) {
 					break;
 				}
 
-				if(!first && m_pred(top->front(), lastItem)) { // TODO: Move phi array calculation to this method or the sorter will explode when sorting already sorted sequences
+				if(lastItem != NULL && m_pred(block->front(), *lastItem)) { // end the current run
 					out.close();
 					m_runFiles.push_back(runFile);
+					m_phi.push_back(phi);
+					phi.clear();
 					runFile = temp_file();
 					out.open(runFile, access_write);
 
@@ -306,9 +385,13 @@ public:
 					in.clear();
 				}
 
-				out.write(top->begin(), top->end());
-				top->clear();
-				m_emptyWriteBuffers.push(top);
+				phi.push_back(block->front());
+				out.write(block->begin(), block->end());
+
+				lastItem = new T(block->back());
+
+				block->clear();
+				m_emptyWriteBuffers.push(block);
 
 				continue;
 			}
@@ -435,15 +518,14 @@ private:
 			}
 		}
 
-		tpie::parallel_sort(sigma.begin(), sigma.end(), pair_comparator(m_pred));
+		tpie::parallel_sort(sigma.begin(), sigma.end(), predwrap<memory_size_type>(m_pred));
 		for(typename std::vector<std::pair<T, memory_size_type> >::iterator i = sigma.begin(); i != sigma.end(); ++i) {
 			m_readJobs.push(i->second);
 		}
 
 		memory_size_type next_block = 0;
-		std::priority_queue<T, std::vector<T>, pred_t> queue;
+		tpie::internal_priority_queue<std::pair<T, run_container_type*>, predwrap<run_container_type*> > queue(m_parameters.fanout/2, predwrap<run_container_type*>(m_pred));
 		run_container_type * write_buffer = m_emptyWriteBuffers.pop();
-		std::vector<run_container_type *> read_buffers;
 		while(true) {
 			if(next_block == sigma.size()) // all blocks have been processed
 				break;
@@ -451,31 +533,36 @@ private:
 			do {
 				run_container_type * block = m_fullReadBuffers.pop();
 				pi.step();
-				for(typename run_container_type::iterator i = block->begin(); i != block->end(); ++i) {
-					queue.push(*i);
-				}
-				block->clear();
-				read_buffers.push_back(block);
+				queue.push(std::make_pair(block->front(), block));
+				block->pop_front();
 				++next_block;
 			} while(!m_fullReadBuffers.empty());
 
-			while(!queue.empty() && !(next_block < sigma.size() && m_pred(sigma[next_block].first, queue.top()))) {
-				write_buffer->push_back(queue.top());
-				if(write_buffer->	size() == blockSize) {
+			while(!queue.empty() && !(next_block < sigma.size() && m_pred(sigma[next_block].first, queue.top().first))) {
+				const std::pair<T, run_container_type*> & top = queue.top();
+				write_buffer->push_back(top.first);
+				if(write_buffer->size() == blockSize) { // replace the full write buffer
 					m_fullWriteBuffers.push(write_buffer);
-					m_emptyReadBuffers.push(read_buffers.back()); // release a buffer for reading
-					read_buffers.pop_back();
 					write_buffer = m_emptyWriteBuffers.pop();
+				}
+
+				run_container_type * block = top.second;
+				if(block->empty()) {
+					block->clear();
+					m_emptyReadBuffers.push(block);
+					queue.pop();
+				}
+				else {
+					queue.pop_and_push(std::make_pair(block->front(), block));
+					block->pop_front();
 				}
 			}
 		}
 
-		m_fullWriteBuffers.push(NULL); // push NULL to indicate a run termination
-
 		for(memory_size_type i = 0; i < n; ++i) {
 			m_runFiles.pop_front();
+			m_phi.pop_front();
 		}
-
 	}
 
 public:
@@ -599,33 +686,38 @@ public:
 					}
 				}
 
-				tpie::parallel_sort(m_sigma.begin(), m_sigma.end(), pair_comparator(m_pred));
+				tpie::parallel_sort(m_sigma.begin(), m_sigma.end(), predwrap<memory_size_type>(m_pred));
 				for(typename std::vector<std::pair<T, memory_size_type> >::iterator i = m_sigma.begin(); i != m_sigma.end(); ++i) {
 					m_readJobs.push(i->second);
 				}
 			}
 
 			// populate the queue if possible
-			tp_assert(!m_finalQueue.empty() || m_nextBlock < m_sigma.size(), "next_block is sigma.size and the queue is empty.")
-			if(m_finalQueue.empty() || (m_nextBlock < m_sigma.size() && m_pred(m_finalQueue.top(), m_sigma[m_nextBlock].first))) {
+			tp_assert(!m_finalQueue.empty() || m_nextBlock < m_sigma.size(), "next_block is m_sigma.size() and the queue is empty.")
+			if(m_finalQueue.empty() || (m_nextBlock < m_sigma.size() && m_pred(m_finalQueue.top().first, m_sigma[m_nextBlock].first))) {
 				do {
 					run_container_type * block = m_fullReadBuffers.pop();
-					for(typename run_container_type::iterator i = block->begin(); i != block->end(); ++i) {
-						m_finalQueue.push(*i);
-					}
-					block->clear();
-					m_finalReadBuffers.push(block);
+					m_finalQueue.push(std::make_pair(block->front(), block));
+					block->pop_front();
 					++m_nextBlock;
 				}
 				while(!m_fullReadBuffers.empty());
 			}
 
-			if(m_itemsPulled % blockSize == 0) { // this should be fixed for cases where a block is not filled.
-				// release a buffer for reading
-				m_emptyReadBuffers.push(m_finalReadBuffers.front());
-				m_finalReadBuffers.pop();
-			}
+			const std::pair<T, run_container_type*> & top = m_finalQueue.top();
 			++m_itemsPulled;
+			T item = top.first;
+			run_container_type * block = top.second;
+
+			if(block->empty()) {
+				block->clear();
+				m_emptyReadBuffers.push(block);
+				m_finalQueue.pop();
+			}
+			else {
+				m_finalQueue.pop_and_push(std::make_pair(block->front(), block));
+				block->pop_front();
+			}
 
 			if(!can_pull()) {
 				tp_assert(m_finalQueue.empty(), "!can_pull() but the internal queue is not empty.")
@@ -645,8 +737,6 @@ public:
 				m_IOThread.join();
 			}
 
-			T item = m_finalQueue.top();
-			m_finalQueue.pop();
 			return item;
 		}
 	}
@@ -709,21 +799,22 @@ public:
 	}
 
 private:
-	class pair_comparator {
+	template<typename S>
+	class predwrap {
 	public:
-		pair_comparator(pred_t & pred) : m_pred(pred) {}
+		typedef const std::pair<T, S>& item_type;
+		typedef item_type first_argument_type;
+		typedef item_type second_argument_type;
+		typedef bool result_type;
 
-		bool operator()(const std::pair<T, memory_size_type>& a, const std::pair<T, memory_size_type>& b) {
-			if(m_pred(a.first, b.first))
-				return true;
-			if(m_pred(b.first, a.first))
-				return false;
-			return a.second < b.second;
+		predwrap(pred_t & pred) : m_pred(pred) {}
+
+		bool operator()(const std::pair<T, S>& a, const std::pair<T, S>& b) {
+			return m_pred(a.first, b.first);
 		}
 	private:
 		pred_t & m_pred;
 	};
-
 
 	enum reporting_mode {
 		REPORTING_MODE_INTERNAL, // do not write anything to disk. Phase 2 will be a no-op phase and phase 3 is simple array traversal
@@ -748,6 +839,7 @@ private:
 
 	run_container_type * m_currentRun;
 
+	// as far as i can see these do not need to be locked with a mutex
 	std::deque<temp_file> m_runFiles;
 	std::deque<std::vector<T> > m_phi; // contains vectors of the smallest elements of each block in each run
 
@@ -759,7 +851,7 @@ private:
 	boost::thread m_IOThread; // The thread in phase 1 used to write run formations to file
 
 	// phase 2 specific
-	bits::blocking_queue<memory_size_type> m_readJobs; 
+	bits::blocking_queue<memory_size_type> m_readJobs;
 	bits::blocking_queue<run_container_type *> m_emptyWriteBuffers;
 	bits::blocking_queue<run_container_type *> m_emptyReadBuffers;
 	bits::blocking_queue<run_container_type *> m_fullWriteBuffers;
@@ -768,7 +860,7 @@ private:
 	// phase 3 specific
 	memory_size_type m_nextBlock;
 	std::vector<std::pair<T, memory_size_type> > m_sigma;
-	std::priority_queue<T, std::vector<T>, pred_t> m_finalQueue; // TODO: pass pred to the queue somehow
+	tpie::internal_priority_queue<std::pair<T, run_container_type*>, predwrap<run_container_type*> > m_finalQueue; // TODO: pass pred to the queue somehow
 	std::queue<run_container_type *> m_finalReadBuffers;
 };
 
