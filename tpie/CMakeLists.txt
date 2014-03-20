@@ -26,6 +26,7 @@ set (HEADERS
 		file_count.h
 		execution_time_predictor.h
 		imported/cycle.h
+		internal_deque.h
 		internal_sort.h
 		internal_queue.h
 		internal_stack.h
