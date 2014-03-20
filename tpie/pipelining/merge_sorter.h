@@ -666,9 +666,14 @@ public:
 		tp_assert(m_state == STATE_REPORT, "Wrong phase");
 		if(m_reporting_mode == REPORTING_MODE_INTERNAL) {
 			T el = (*m_currentRun)[m_itemsPulled++];
+
 			if(!can_pull()) {
 				tpie_delete(m_currentRun);
+
+				m_fullWriteBuffers.push(NULL); // push a run to signal thread termination
+				m_IOThread.join();
 			}
+
 			return el;
 		}
 		else {
