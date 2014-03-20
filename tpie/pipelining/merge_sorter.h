@@ -492,6 +492,11 @@ public:
 		m_sortThread.join();
 		while(!m_emptyBuffers.empty())
 			tpie_delete(m_emptyBuffers.pop());
+
+		if(m_itemsPushed == 0) {
+			m_fullWriteBuffers.push(NULL); // push a run to signal thread termination
+			m_IOThread.join();
+		}
 	}
 
 private:
