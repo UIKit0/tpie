@@ -457,8 +457,6 @@ public:
 			// no buffer has been queued for sorting or writing yet and the number size is small enough.
 			// use internal report mode
 
-			// TODO: Resize vector
-
 			m_fullBuffers.push(NULL);
 
 			if(!m_currentRun->empty()) {
@@ -719,7 +717,6 @@ public:
 
 				m_fullWriteBuffers.push(NULL); // push a run to signal thread termination
 
-				// TODO: m_finalReadBuffers should be empty at this point
 				while(!m_emptyWriteBuffers.empty()) { // the sizes of the two should be equal
 					tpie_delete(m_emptyWriteBuffers.pop());
 					tpie_delete(m_emptyReadBuffers.pop());
@@ -855,7 +852,7 @@ private:
 	// phase 3 specific
 	memory_size_type m_nextBlock;
 	std::vector<std::pair<T, memory_size_type> > m_sigma;
-	tpie::internal_priority_queue<std::pair<T, run_container_type*>, predwrap<run_container_type*> > m_finalQueue; // TODO: pass pred to the queue somehow
+	tpie::internal_priority_queue<std::pair<T, run_container_type*>, predwrap<run_container_type*> > m_finalQueue;
 	std::queue<run_container_type *> m_finalReadBuffers;
 };
 
