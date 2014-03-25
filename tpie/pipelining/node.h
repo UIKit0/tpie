@@ -200,61 +200,47 @@ public:
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Virtual dtor.
 	///////////////////////////////////////////////////////////////////////////
-	virtual ~node() {}
+	virtual ~node();
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Get the minimum amount of memory declared by this node.
 	/// Defaults to zero when no minimum has been set.
 	///////////////////////////////////////////////////////////////////////////
-	inline memory_size_type get_minimum_memory() const {
-		return m_minimumMemory;
-	}
+	memory_size_type get_minimum_memory() const;
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Get the maximum amount of memory declared by this node.
 	/// Defaults to maxint when no maximum has been set.
 	///////////////////////////////////////////////////////////////////////////
-	inline memory_size_type get_maximum_memory() const {
-		return m_maximumMemory;
-	}
+	memory_size_type get_maximum_memory() const;
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Get the amount of memory assigned to this node.
 	///////////////////////////////////////////////////////////////////////////
-	inline memory_size_type get_available_memory() const {
-		return m_availableMemory;
-	}
+	memory_size_type get_available_memory() const;
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Set the memory priority of this node. Memory is distributed
 	/// proportionally to the priorities of the nodes in the given phase.
 	///////////////////////////////////////////////////////////////////////////
-	inline void set_memory_fraction(double f) {
-		m_memoryFraction = f;
-	}
+	void set_memory_fraction(double f);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Get the memory priority of this node.
 	///////////////////////////////////////////////////////////////////////////
-	inline double get_memory_fraction() const {
-		return m_memoryFraction;
-	}
+	double get_memory_fraction() const;
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Get the local node map, mapping node IDs to node
 	/// pointers for all the nodes reachable from this one.
 	///////////////////////////////////////////////////////////////////////////
-	inline bits::node_map::ptr get_node_map() const {
-		return token.get_map();
-	}
+	bits::node_map::ptr get_node_map() const;
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Get the internal node ID of this node (mainly
 	/// for debugging purposes).
 	///////////////////////////////////////////////////////////////////////////
-	inline node_token::id_t get_id() const {
-		return token.id();
-	}
+	node_token::id_t get_id() const;
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Called before memory assignment but after depending phases have
@@ -262,8 +248,7 @@ public:
 	/// phase. The implementer does not have to call the super prepare-method;
 	/// its default implementation is empty.
 	///////////////////////////////////////////////////////////////////////////
-	virtual void prepare() {
-	}
+	virtual void prepare();
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief  Propagate stream metadata.
@@ -276,8 +261,7 @@ public:
 	///
 	/// The default implementation does nothing.
 	///////////////////////////////////////////////////////////////////////////
-	virtual void propagate() {
-	}
+	virtual void propagate();
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Begin pipeline processing phase.
@@ -292,19 +276,14 @@ public:
 	///
 	/// The default implementation does nothing.
 	///////////////////////////////////////////////////////////////////////////
-	virtual void begin() {
-	}
+	virtual void begin();
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief For initiator nodes, execute this phase by pushing all items
 	/// to be pushed. For non-initiator nodes, the default implementation
 	/// throws a not_initiator_segment exception.
 	///////////////////////////////////////////////////////////////////////////
-	virtual void go() {
-		log_warning() << "node subclass " << typeid(*this).name()
-			<< " is not an initiator node" << std::endl;
-		throw not_initiator_node();
-	}
+	virtual void go();
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief End pipeline processing phase.
@@ -320,100 +299,70 @@ public:
 	/// The default implementation does nothing, so it does not matter if the
 	/// implementation calls the parent end().
 	///////////////////////////////////////////////////////////////////////////
-	virtual void end() {
-	}
+	virtual void end();
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Overridden by nodes that have data to evacuate.
 	///////////////////////////////////////////////////////////////////////////
-	virtual bool can_evacuate() {
-		return false;
-	}
+	virtual bool can_evacuate();
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Overridden by nodes that have data to evacuate.
 	///////////////////////////////////////////////////////////////////////////
-	virtual void evacuate() {
-	}
+	virtual void evacuate();
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Get the priority of this node's name. For purposes of
 	/// pipeline debugging and phase naming for progress indicator breadcrumbs.
 	///////////////////////////////////////////////////////////////////////////
-	inline priority_type get_name_priority() {
-		return m_namePriority;
-	}
+	priority_type get_name_priority();
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Get this node's name. For purposes of pipeline debugging and
 	/// phase naming for progress indicator breadcrumbs.
 	///////////////////////////////////////////////////////////////////////////
-	inline const std::string & get_name() {
-		if (m_name.empty()) {
-			m_name = bits::extract_pipe_name(typeid(*this).name());
-		}
-		return m_name;
-	}
+	const std::string & get_name();
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Set this node's name. For purposes of pipeline debugging and
 	/// phase naming for progress indicator breadcrumbs.
 	///////////////////////////////////////////////////////////////////////////
-	inline void set_name(const std::string & name, priority_type priority = PRIORITY_USER) {
-		m_name = name;
-		m_namePriority = priority;
-	}
+	void set_name(const std::string & name, priority_type priority = PRIORITY_USER);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Used internally when a pair_factory has a name set.
 	///////////////////////////////////////////////////////////////////////////
-	inline void set_breadcrumb(const std::string & breadcrumb) {
-		m_name = m_name.empty() ? breadcrumb : (breadcrumb + " | " + m_name);
-	}
+	void set_breadcrumb(const std::string & breadcrumb);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Used internally for progress indication. Get the number of times
 	/// the node expects to call step() at most.
 	///////////////////////////////////////////////////////////////////////////
-	inline stream_size_type get_steps() {
-		return m_stepsTotal;
-	}
+	stream_size_type get_steps();
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Used internally. Set the progress indicator to use.
 	///////////////////////////////////////////////////////////////////////////
-	inline void set_progress_indicator(progress_indicator_base * pi) {
-		m_pi = pi;
-	}
+	void set_progress_indicator(progress_indicator_base * pi);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Used internally. Get the progress indicator used.
 	///////////////////////////////////////////////////////////////////////////
-	progress_indicator_base * get_progress_indicator() {
-		return m_pi;
-	}
+	progress_indicator_base * get_progress_indicator();
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief  Used internally to check order of method calls.
 	///////////////////////////////////////////////////////////////////////////
-	STATE get_state() const {
-		return m_state;
-	}
+	STATE get_state() const;
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief  Used internally to check order of method calls.
 	///////////////////////////////////////////////////////////////////////////
-	void set_state(STATE s) {
-		m_state = s;
-	}
+	void set_state(STATE s);
 
-	int get_plot_options() const {
-		return m_plotOptions;
-	}
+	int get_plot_options() const;
 
-	void set_plot_options(int options) {
-		m_plotOptions = options;
-	}
+	void set_plot_options(int options);
 protected:
 #ifdef _WIN32
 	// Disable warning C4355: 'this' : used in base member initializer list
@@ -426,86 +375,26 @@ protected:
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Default constructor, using a new node_token.
 	///////////////////////////////////////////////////////////////////////////
-	inline node()
-		: token(this)
-		, m_minimumMemory(0)
-		, m_maximumMemory(std::numeric_limits<memory_size_type>::max())
-		, m_availableMemory(0)
-		, m_memoryFraction(0.0)
-		, m_namePriority(PRIORITY_NO_NAME)
-		, m_stepsTotal(0)
-		, m_stepsLeft(0)
-		, m_pi(0)
-		, m_state(STATE_FRESH)
-		, m_plotOptions(0)
-	{
-	}
+	node();
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Copy constructor. We need to define this explicitly since the
 	/// node_token needs to know its new owner.
 	///////////////////////////////////////////////////////////////////////////
-	inline node(const node & other)
-		: token(other.token, this)
-		, m_minimumMemory(other.m_minimumMemory)
-		, m_maximumMemory(other.m_maximumMemory)
-		, m_availableMemory(other.m_availableMemory)
-		, m_memoryFraction(other.m_memoryFraction)
-		, m_name(other.m_name)
-		, m_namePriority(other.m_namePriority)
-		, m_stepsTotal(other.m_stepsTotal)
-		, m_stepsLeft(other.m_stepsLeft)
-		, m_pi(other.m_pi)
-		, m_state(other.m_state)
-		, m_plotOptions(other.m_plotOptions)
-	{
-		if (m_state != STATE_FRESH) 
-			throw call_order_exception(
-				"Tried to copy pipeline node after prepare had been called");
-	}
+	node(const node & other);
 
 #ifdef TPIE_CPP_RVALUE_REFERENCE
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Move constructor. We need to define this explicitly since the
 	/// node_token needs to know its new owner.
 	///////////////////////////////////////////////////////////////////////////
-	node(node && other)
-		: token(std::move(other.token), this)
-		, m_minimumMemory(std::move(other.m_minimumMemory))
-		, m_maximumMemory(std::move(other.m_maximumMemory))
-		, m_availableMemory(std::move(other.m_availableMemory))
-		, m_memoryFraction(std::move(other.m_memoryFraction))
-		, m_name(std::move(other.m_name))
-		, m_namePriority(std::move(other.m_namePriority))
-		, m_stepsTotal(std::move(other.m_stepsTotal))
-		, m_stepsLeft(std::move(other.m_stepsLeft))
-		, m_pi(std::move(other.m_pi))
-		, m_state(std::move(other.m_state))
-		, m_plotOptions(std::move(other.m_plotOptions))
-	{
-		if (m_state != STATE_FRESH)
-			throw call_order_exception(
-				"Tried to move pipeline node after prepare had been called");
-	}
+	node(node && other);
 #endif // TPIE_CPP_RVALUE_REFERENCE
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Constructor using a given fresh node_token.
 	///////////////////////////////////////////////////////////////////////////
-	inline node(const node_token & token)
-		: token(token, this, true)
-		, m_minimumMemory(0)
-		, m_maximumMemory(std::numeric_limits<memory_size_type>::max())
-		, m_availableMemory(0)
-		, m_memoryFraction(0.0)
-		, m_namePriority(PRIORITY_NO_NAME)
-		, m_stepsTotal(0)
-		, m_stepsLeft(0)
-		, m_pi(0)
-		, m_state(STATE_FRESH)
-		, m_plotOptions(0)
-	{
-	}
+	node(const node_token & token);
 #ifdef _WIN32
 #pragma warning( pop )
 #endif // _WIN32
@@ -513,67 +402,41 @@ protected:
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Called by implementers to declare a push destination.
 	///////////////////////////////////////////////////////////////////////////
-	inline void add_push_destination(const node_token & dest) {
-		bits::node_map::ptr m = token.map_union(dest);
-		m->add_relation(token.id(), dest.id(), bits::pushes);
-	}
+	void add_push_destination(const node_token & dest);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Called by implementers to declare a push destination.
 	///////////////////////////////////////////////////////////////////////////
-	inline void add_push_destination(const node & dest) {
-		if (get_state() != STATE_FRESH) {
-			throw call_order_exception("add_push_destination called too late");
-		}
-		add_push_destination(dest.token);
-	}
+	void add_push_destination(const node & dest);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Called by implementers to declare a pull source.
 	///////////////////////////////////////////////////////////////////////////
-	void add_pull_source(const node_token & dest) {
-		if (get_state() != STATE_FRESH) {
-			throw call_order_exception("add_pull_source called too late");
-		}
-		bits::node_map::ptr m = token.map_union(dest);
-		m->add_relation(token.id(), dest.id(), bits::pulls);
-	}
+	void add_pull_source(const node_token & dest);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Called by implementers to declare a pull source.
 	///////////////////////////////////////////////////////////////////////////
-	void add_pull_source(const node & dest) {
-		add_pull_source(dest.token);
-	}
+	void add_pull_source(const node & dest);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Called by implementers to declare a node dependency, that is,
 	/// a requirement that another node has end() called before the begin()
 	/// of this node.
 	///////////////////////////////////////////////////////////////////////////
-	inline void add_dependency(const node_token & dest) {
-		bits::node_map::ptr m = token.map_union(dest);
-		m->add_relation(token.id(), dest.id(), bits::depends);
-	}
+	void add_dependency(const node_token & dest);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Called by implementers to declare a node dependency, that is,
 	/// a requirement that another node has end() called before the begin()
 	/// of this node.
 	///////////////////////////////////////////////////////////////////////////
-	inline void add_dependency(const node & dest) {
-		add_dependency(dest.token);
-	}
+	void add_dependency(const node & dest);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Called by implementers to declare minimum memory requirements.
 	///////////////////////////////////////////////////////////////////////////
-	inline void set_minimum_memory(memory_size_type minimumMemory) {
-		if (get_state() != STATE_FRESH && get_state() != STATE_IN_PREPARE) {
-			throw call_order_exception("set_minimum_memory");
-		}
-		m_minimumMemory = minimumMemory;
-	}
+	void set_minimum_memory(memory_size_type minimumMemory);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Called by implementers to declare maximum memory requirements.
@@ -581,20 +444,13 @@ protected:
 	/// To signal that you don't want any memory, set minimum memory and the
 	/// memory fraction to zero.
 	///////////////////////////////////////////////////////////////////////////
-	inline void set_maximum_memory(memory_size_type maximumMemory) {
-		if (get_state() != STATE_FRESH && get_state() != STATE_IN_PREPARE) {
-			throw call_order_exception("set_maximum_memory");
-		}
-		m_maximumMemory = maximumMemory;
-	}
+	void set_maximum_memory(memory_size_type maximumMemory);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Called by the memory manager to set the amount of memory
 	/// assigned to this node.
 	///////////////////////////////////////////////////////////////////////////
-	virtual void set_available_memory(memory_size_type availableMemory) {
-		m_availableMemory = availableMemory;
-	}
+	virtual void set_available_memory(memory_size_type availableMemory);
 
 public:
 	///////////////////////////////////////////////////////////////////////////
@@ -616,40 +472,7 @@ public:
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief See \ref node::forward.
 	///////////////////////////////////////////////////////////////////////////
-	void forward_any(std::string key, boost::any value) {
-		switch (get_state()) {
-			case STATE_FRESH:
-			case STATE_IN_PREPARE:
-			case STATE_AFTER_PREPARE:
-				// Allowed since forward() is allowed in prepare()
-				break;
-			case STATE_IN_PROPAGATE:
-			case STATE_AFTER_PROPAGATE:
-				// Allowed since forward() is allowed in propagate()
-				break;
-			case STATE_IN_BEGIN:
-				throw call_order_exception("forward");
-			case STATE_AFTER_BEGIN:
-			case STATE_IN_END:
-			case STATE_AFTER_END:
-				// Allowed since forward() is allowed in end()
-				break;
-			default:
-				log_debug() << "forward in unknown state " << get_state() << std::endl;
-				break;
-		}
-
-		add_forwarded_data(key, value, true);
-
-		bits::node_map::ptr nodeMap = get_node_map()->find_authority();
-
-		typedef node_token::id_t id_t;
-		std::vector<id_t> successors;
-		nodeMap->get_successors(get_id(), successors);
-		for (size_t i = 0; i < successors.size(); ++i) {
-			nodeMap->get(successors[i])->add_forwarded_data(key, value, false);
-		}
-	}
+	void forward_any(std::string key, boost::any value);
 
 private:
 	///////////////////////////////////////////////////////////////////////////
@@ -658,35 +481,20 @@ private:
 	/// If explicitForward is false, the data will not override data forwarded
 	/// with explicitForward == true.
 	///////////////////////////////////////////////////////////////////////////
-	void add_forwarded_data(std::string key, boost::any value, bool explicitForward) {
-		if (m_values.count(key) &&
-			!explicitForward && m_values[key].second) return;
-		m_values[key].first = value;
-		m_values[key].second = explicitForward;
-	}
+	void add_forwarded_data(std::string key, boost::any value, bool explicitForward);
 
 public:
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Find out if there is a piece of auxiliary data forwarded with a
 	/// given name.
 	///////////////////////////////////////////////////////////////////////////
-	inline bool can_fetch(std::string key) {
-		return m_values.count(key) != 0;
-	}
+	bool can_fetch(std::string key);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Fetch piece of auxiliary data as boost::any (the internal
 	/// representation).
 	///////////////////////////////////////////////////////////////////////////
-	inline boost::any fetch_any(std::string key) {
-		if (m_values.count(key) != 0) {
-			return m_values[key].first;
-		} else {
-			std::stringstream ss;
-			ss << "Tried to fetch nonexistent key '" << key << '\'';
-			throw invalid_argument_exception(ss.str());
-		}
-	}
+	boost::any fetch_any(std::string key);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Fetch piece of auxiliary data, expecting a given value type.
@@ -714,48 +522,20 @@ public:
 	/// \brief Get the node_token that maps this node's ID to a pointer
 	/// to this.
 	///////////////////////////////////////////////////////////////////////////
-	const node_token & get_token() const {
-		return token;
-	}
+	const node_token & get_token() const;
 
 public:
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Called by implementers that intend to call step().
 	/// \param steps  The number of times step() is called at most.
 	///////////////////////////////////////////////////////////////////////////
-	void set_steps(stream_size_type steps) {
-		switch (get_state()) {
-			case STATE_FRESH:
-			case STATE_IN_PREPARE:
-			case STATE_IN_PROPAGATE:
-				break;
-			case STATE_IN_BEGIN:
-				log_error() << "set_steps in begin(); use set_steps in propagate() instead." << std::endl;
-				throw call_order_exception("set_steps");
-			default:
-				log_error() << "set_steps in unknown state " << get_state() << std::endl;
-				throw call_order_exception("set_steps");
-		}
-		m_stepsTotal = m_stepsLeft = steps;
-	}
+	void set_steps(stream_size_type steps);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Step the progress indicator.
 	/// \param steps  How many steps to step.
 	///////////////////////////////////////////////////////////////////////////
-	void step(stream_size_type steps = 1) {
-		assert(get_state() == STATE_IN_END || get_state() == STATE_AFTER_BEGIN || get_state() == STATE_IN_END);
-		if (m_stepsLeft < steps) {
-			if (m_stepsTotal != std::numeric_limits<stream_size_type>::max()) {
-				log_warning() << typeid(*this).name() << " ==== Too many steps " << m_stepsTotal << std::endl;
-				m_stepsLeft = 0;
-				m_stepsTotal = std::numeric_limits<stream_size_type>::max();
-			}
-		} else {
-			m_stepsLeft -= steps;
-		}
-		m_pi->step(steps);
-	}
+	void step(stream_size_type steps = 1);
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Get a non-initialized progress indicator for use with external
@@ -764,12 +544,7 @@ public:
 	/// of steps declared in progress_indicator_base::init() and in
 	/// node::set_steps().
 	///////////////////////////////////////////////////////////////////////////
-	progress_indicator_base * proxy_progress_indicator() {
-		if (m_piProxy.get() != 0) return m_piProxy.get();
-		progress_indicator_base * pi = new bits::proxy_progress_indicator(*this);
-		m_piProxy.reset(pi);
-		return pi;
-	}
+	progress_indicator_base * proxy_progress_indicator();
 
 #ifdef DOXYGEN
 	///////////////////////////////////////////////////////////////////////////
