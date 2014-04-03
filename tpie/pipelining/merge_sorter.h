@@ -127,14 +127,13 @@ public:
 
 	static const memory_size_type maximumFanout = 250; // This is the max number of runs to merge at a time when running a k-way merge.
 	static const memory_size_type bufferCount = 2; // This is the number of buffers to be used during phase 1
-	const memory_size_type blockSize;
+	static const memory_size_type writebufferCount = 3; // the number of write buffers used in phase 2
 
 	///////////////////////////////////////////////////////////////////////////////
 	/// \brief Create a new merger_sorter object with the given predicate
 	///////////////////////////////////////////////////////////////////////////////
 	merge_sorter(pred_t pred = pred_t())
-	: blockSize(get_block_size())
-	, m_parametersSet(false)
+	: m_parametersSet(false)
 	, m_pred(pred)
 	, m_reporting_mode(REPORTING_MODE_EXTERNAL)
 	, m_state(STATE_PARAMETERS)
@@ -171,12 +170,18 @@ private:
 		/// The fanout is determined by the size of the merge heap and the stream
 		/// memory usage
 		///////////////////////////////////////////////////////////////////////////////
-		m_parameters.fanout = calculate_fanout(m_parameters.memoryPhase2);
-		if(fanout_memory_usage(m_parameters.fanout) > m_parameters.memoryPhase2) {
-			log_debug() << "Not enough memory for fanout "
-						<< m_parameters.fanout << "! ("
-						<< m_parameters.memoryPhase2 << " < "
-						<< fanout_memory_usage(m_parameters.fanout) << ")\n";
+
+		memory_size_type availableReadMemory = m_parameters.memoryPhase2; // the memory available for read buffers in phase 2
+		if(m_parameters.memoryPhase2 >= get_block_size() * writebufferCount)
+			availableReadMemory -= get_block_size() * writebufferCount;
+		else
+			log_debug() << "Not enough memory for writeBuffers in phase 1" << get_block_size() * writebufferCount << " > " << m_parameters.memoryPhase2;
+
+		m_parameters.fanout = calculate_fanout(availableReadMemory); // the write buffers used in phase 2 should be taken into account. These are not used in phase 3.
+		if(fanout_memory_usage(m_parameters.fanout) > availableReadMemory) {
+			log_debug() << "Not enough memory for fanout " << m_parameters.fanout << " "
+						<< fanout_memory_usage(m_parameters.fanout) << " > "
+						<< availableReadMemory << std::endl;
 
 			m_parameters.memoryPhase2 = fanout_memory_usage(m_parameters.fanout);
 		}
@@ -198,7 +203,7 @@ private:
 		///////////////////////////////////////////////////////////////////////////////
 		/// Phase 3
 		///////////////////////////////////////////////////////////////////////////////
-		m_parameters.finalFanout = calculate_fanout(m_parameters.memoryPhase3);
+		m_parameters.finalFanout = calculate_fanout(m_parameters.memoryPhase3); // there are no write buffers used in phase 3, only read buffers.
 
 		if(fanout_memory_usage(m_parameters.finalFanout) > m_parameters.memoryPhase3) {
 			log_debug() << "Not enough memory for fanout "
@@ -217,7 +222,7 @@ private:
 
 	static memory_size_type calculate_fanout(memory_size_type memory) {
 		// do a binary search to determine the fanout
-		memory_size_type l = 2;
+		/*memory_size_type l = 2;
 		memory_size_type h = maximumFanout+1;
 
 		while(l < h-1) {
@@ -230,12 +235,15 @@ private:
 				h = m-1;
 		}
 
-		return l;
+		return l;*/
+
+		return (memory - sizeof(merge_sorter<T, UseProgress, pred_t>)
+		- file_stream<T>::memory_usage() * 2) / get_block_size();
 	}
 
 	static memory_size_type fanout_memory_usage(memory_size_type fanout) {
 		return sizeof(merge_sorter<T, UseProgress, pred_t>)
-		+ file_stream<T>::memory_usage();
+		+ file_stream<T>::memory_usage() * 2 + fanout * get_block_size();
 	}
 public:
 
@@ -320,7 +328,7 @@ public:
 			// calculate phi for this run
 			m_phi.push_back(std::vector<T>());
 			std::vector<T> & phi = m_phi.back();
-			for(memory_size_type i = 0; i < run->size(); i += blockSize) phi.push_back((*run)[i]);
+			for(memory_size_type i = 0; i < run->size(); i += get_block_size()) phi.push_back((*run)[i]);
 
 			m_sortedBuffers.push(run);
 		}
@@ -346,14 +354,13 @@ public:
 			m_emptyBuffers.push(run); // push a new empty buffer
 		}
 
+		// phase 2 + 3
 		temp_file runFile;
 		file_stream<T> out;
 		std::vector<T> phi;
 		out.open(runFile, access_write);
 
 		std::vector<file_stream<T>* > in;
-
-		// phase 2 + 3
 
 		T * lastItem = NULL;
 
@@ -397,11 +404,11 @@ public:
 
 				while(in.size() <= run) {
 					file_stream<T> * stream = tpie_new<file_stream<T> >();
-					stream->open(m_runFiles[in.size()-1]);
+					stream->open(m_runFiles[in.size()]);
 					in.push_back(stream);
 				}
 
-				for(memory_size_type i = 0; i < blockSize; ++i)
+				for(memory_size_type i = 0; i < get_block_size()/sizeof(T) && in[run]->can_read(); ++i)
 					top->push_back(in[run]->read());
 				m_fullReadBuffers.push(top);
 				continue;
@@ -490,8 +497,12 @@ public:
 		m_state = STATE_MERGE;
 
 		m_sortThread.join();
-		while(!m_emptyBuffers.empty())
+
+		for(memory_size_type i = 0; i < bufferCount; ++i) {
 			tpie_delete(m_emptyBuffers.pop());
+		}
+
+		tp_assert(m_emptyBuffers.empty(), "A wild write buffers has appeared.");
 
 		if(m_itemsPushed == 0) {
 			m_fullWriteBuffers.push(NULL); // push a run to signal thread termination
@@ -505,6 +516,7 @@ private:
 	/// to the end
 	///////////////////////////////////////////////////////////////////////////////
 	void merge_runs(memory_size_type n, typename Progress::base & pi) {
+		log_debug() << "Merging " << n << std::endl;
 		if(n > m_runFiles.size()) {
 			n = m_runFiles.size();
 		}
@@ -539,7 +551,7 @@ private:
 			while(!queue.empty() && !(next_block < sigma.size() && m_pred(sigma[next_block].first, queue.top().first))) {
 				const std::pair<T, run_container_type*> & top = queue.top();
 				write_buffer->push_back(top.first);
-				if(write_buffer->size() == blockSize) { // replace the full write buffer
+				if(write_buffer->size() == get_block_size()) { // replace the full write buffer
 					m_fullWriteBuffers.push(write_buffer);
 					write_buffer = m_emptyWriteBuffers.pop();
 				}
@@ -577,28 +589,40 @@ public:
 			pi.done();
 		}
 		else {
-			memory_size_type treeHeight = static_cast<int> (
-				ceil(log(static_cast<float>(m_runFiles.size()))) / ceil(log(static_cast<float>(m_parameters.fanout)))
-			); // the number of merge 'rounds' to be performed.
+			if(m_runFiles.size() > m_parameters.finalFanout) {
+				memory_size_type treeHeight = static_cast<int> (
+					ceil(log(static_cast<float>(m_runFiles.size()))) / ceil(log(static_cast<float>(m_parameters.fanout)))
+				); // the number of merge 'rounds' to be performed.
 
-			pi.init(treeHeight * m_itemsPushed / blockSize);
+				pi.init(treeHeight * m_itemsPushed / get_block_size());
 
-			for(memory_size_type i = 0; i < m_parameters.fanout/2; ++i) {
-				m_emptyWriteBuffers.push(tpie_new<run_container_type>(blockSize));
-				m_emptyReadBuffers.push(tpie_new<run_container_type>(blockSize));
+				// allocate buffers
+				for(memory_size_type i = 0; i < m_parameters.fanout; ++i)
+					m_emptyReadBuffers.push(tpie_new<run_container_type>(get_block_size() / sizeof(T)));
+
+				for(memory_size_type i = 0; i < writebufferCount; ++i)
+					m_emptyWriteBuffers.push(tpie_new<run_container_type>(get_block_size() / sizeof(T)));
+
+				// perform merges
+				do {
+					merge_runs(m_parameters.fanout, pi);
+				} while(m_runFiles.size() > m_parameters.finalFanout);
+
+				// destroy the buffers
+				for(memory_size_type i = 0; i < m_parameters.fanout; ++i)
+					tpie_delete(m_emptyReadBuffers.pop());
+
+				for(memory_size_type i = 0; i < writebufferCount; ++i)
+					tpie_delete(m_emptyWriteBuffers.pop());
+
+				pi.done();
+			}
+			else {
+				pi.init(1);
+				pi.step();
+				pi.done();
 			}
 
-			while(m_runFiles.size() > m_parameters.finalFanout) {
-				merge_runs(m_parameters.fanout, pi);
-			}
-
-			// Release the buffers
-			for(memory_size_type i = 0; i < m_parameters.fanout/2; ++i) {
-				tpie_delete(m_emptyWriteBuffers.pop());
-				tpie_delete(m_emptyReadBuffers.pop());
-			}
-
-			pi.done();
 		}
 
 		m_state = STATE_REPORT;
@@ -624,7 +648,7 @@ public:
 
 				m_phi.push_back(std::vector<T>());
 				std::vector<T> & phi = m_phi.back();
-				for(memory_size_type i = 0; i < m_currentRun->size(); i += blockSize) phi.push_back((*m_currentRun)[i]);
+				for(memory_size_type i = 0; i < m_currentRun->size(); i += get_block_size()) phi.push_back((*m_currentRun)[i]);
 
 				tpie_delete(m_currentRun);
 			}
@@ -678,10 +702,8 @@ public:
 		}
 		else {
 			if(m_itemsPulled == 0) { // first item pulled -> initialization
-				for(memory_size_type i = 0; i < m_parameters.finalFanout/2; ++i) {
-					m_emptyWriteBuffers.push(tpie_new<run_container_type>(blockSize));
-					m_emptyReadBuffers.push(tpie_new<run_container_type>(blockSize));
-				}
+				for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i)
+					m_emptyReadBuffers.push(tpie_new<run_container_type>(get_block_size()/sizeof(T)));
 
 				for(memory_size_type i = 0; i < m_runFiles.size(); ++i) {
 					for(typename std::vector<T>::iterator j = m_phi[i].begin(); j < m_phi[i].end(); ++j) {
@@ -727,10 +749,8 @@ public:
 
 				m_fullWriteBuffers.push(NULL); // push a run to signal thread termination
 
-				while(!m_emptyWriteBuffers.empty()) { // the sizes of the two should be equal
-					tpie_delete(m_emptyWriteBuffers.pop());
+				for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i)
 					tpie_delete(m_emptyReadBuffers.pop());
-				}
 
 				while(!m_runFiles.empty()) {
 					m_runFiles.pop_front();
@@ -760,11 +780,11 @@ public:
 	}
 
 	static memory_size_type memory_usage_phase_2(const sort_parameters & params) {
-		return fanout_memory_usage(params.fanout);
+		return fanout_memory_usage(params.fanout) + writebufferCount * get_block_size();
 	}
 
 	static memory_size_type minimum_memory_phase_2() {
-		return fanout_memory_usage(0);
+		return fanout_memory_usage(0) + writebufferCount * get_block_size();
 	}
 
 	static memory_size_type memory_usage_phase_3(const sort_parameters & params) {
@@ -797,7 +817,7 @@ public:
 	/// mode.
 	///////////////////////////////////////////////////////////////////////////
 	void set_items(stream_size_type) {
-		// TODO: Use for something....
+		// TODO: Avoid going into external report mode if possible
 	}
 
 private:
