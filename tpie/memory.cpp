@@ -50,8 +50,8 @@ size_t memory_manager::available() const throw() {
 
 namespace {
 	void print_memory_complaint(std::ostream & os, size_t bytes, size_t usage, size_t limit) {
-		os << "Memory limit exceeded by " << (usage - limit)
-		   << " bytes, while trying to allocate " << bytes << " bytes."
+		os << "Memory limit exceeded by " << (usage - limit) * 100 / limit << "\% (" <<  (usage - limit)
+		   << " bytes), while trying to allocate " << bytes << " bytes."
 		   << " Limit is " << limit << ", but " << usage << " would be used.";
 	}
 }
