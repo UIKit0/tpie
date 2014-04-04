@@ -29,6 +29,7 @@
 #include <tpie/internal_priority_queue.h>
 #include <tpie/internal_vector.h>
 #include <deque>
+#include <boost/atomic.hpp>
 
 namespace tpie {
 
@@ -176,6 +177,7 @@ public:
 	, m_runsPushed(0)
 	, m_itemsPushed(0)
 	, m_itemsPulled(0)
+	, m_queuedWriteJobs(0)
 	, m_nextBlock(0)
 	, m_finalQueue(0, predwrap<block*>(m_pred)) // set the size to 0 for now
 	{
@@ -406,6 +408,7 @@ public:
 
 				if(b->m_mode == block::mode::terminate_signal) {
 					tpie_delete(b);
+					--m_queuedWriteJobs;
 					break;
 				}
 
@@ -430,6 +433,7 @@ public:
 					}
 					in.clear();
 
+					--m_queuedWriteJobs;
 					continue;
 				}
 
@@ -440,6 +444,7 @@ public:
 				b->m_data->clear();
 				m_emptyWriteBuffers.push(b);
 
+				--m_queuedWriteJobs;
 				continue;
 			}
 
@@ -563,6 +568,7 @@ public:
 
 		if(m_itemsPushed == 0) {
 			m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
+			++m_queuedWriteJobs;
 			m_IOThread.join();
 		}
 	}
@@ -586,13 +592,16 @@ private:
 		}
 
 		tpie::parallel_sort(sigma.begin(), sigma.end(), predwrap<memory_size_type>(m_pred));
+
 		for(typename std::vector<std::pair<T, memory_size_type> >::iterator i = sigma.begin(); i != sigma.end(); ++i) {
 			m_readJobs.push(i->second);
 		}
 
 		memory_size_type next_block = 0;
 		tpie::internal_priority_queue<std::pair<T, block*>, predwrap<block*> > queue(m_parameters.fanout, predwrap<block*>(m_pred));
+
 		block * write_buffer = m_emptyWriteBuffers.pop();
+
 		while(true) {
 			if(next_block == sigma.size()) // all blocks have been processed
 				break;
@@ -610,6 +619,7 @@ private:
 				write_buffer->m_data->push_back(top.first);
 				if(write_buffer->m_data->size() == get_block_size()/sizeof(T)) { // replace the full write buffer
 					m_fullWriteBuffers.push(write_buffer);
+					++m_queuedWriteJobs;
 					write_buffer = m_emptyWriteBuffers.pop();
 				}
 
@@ -626,7 +636,20 @@ private:
 			}
 		}
 
+		if(!write_buffer->m_data->empty()) {
+			m_fullWriteBuffers.push(write_buffer);
+			++m_queuedWriteJobs;
+		}
+		else {
+			m_emptyWriteBuffers.push(write_buffer);
+		}
+
 		m_fullWriteBuffers.push(tpie_new<block>(block::mode::run_signal));
+		++m_queuedWriteJobs;
+
+		while(m_queuedWriteJobs > 0)
+			boost::this_thread::yield();
+
 		for(memory_size_type i = 0; i < n; ++i) {
 			m_runFiles.pop_front();
 			m_runFileSizes.pop_front();
@@ -756,6 +779,7 @@ public:
 				tpie_delete(m_currentRun);
 
 				m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
+				++m_queuedWriteJobs;
 				m_IOThread.join();
 			}
 
@@ -778,7 +802,6 @@ public:
 
 				tpie::parallel_sort(m_sigma.begin(), m_sigma.end(), predwrap<memory_size_type>(m_pred));
 
-				log_debug() << "Pushing read jobs" << std::endl;
 				for(typename std::vector<std::pair<T, memory_size_type> >::iterator i = m_sigma.begin(); i != m_sigma.end(); ++i) {
 					m_readJobs.push(i->second);
 				}
@@ -815,6 +838,7 @@ public:
 				tp_assert(m_finalQueue.empty(), "!can_pull() but the internal queue is not empty.")
 
 				m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
+				++m_queuedWriteJobs;
 
 				for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i)
 					tpie_delete(m_emptyReadBuffers.pop());
@@ -946,6 +970,7 @@ private:
 	bits::blocking_queue<block*> m_emptyReadBuffers;
 	bits::blocking_queue<block*> m_fullWriteBuffers;
 	bits::blocking_queue<block*> m_fullReadBuffers;
+	boost::atomic<memory_size_type> m_queuedWriteJobs;
 
 	// phase 3 specific
 	memory_size_type m_nextBlock;
