@@ -101,6 +101,14 @@ public:
 		this->forward("items", static_cast<stream_size_type>(this->m_sorter->item_count()));
 	}
 
+	virtual void begin() override {
+		this->m_sorter->pull_begin();
+	}
+
+	virtual void end() override {
+		this->m_sorter->pull_end();
+	}
+
 	inline bool can_pull() const {
 		return this->m_sorter->can_pull();
 	}
@@ -163,10 +171,12 @@ public:
 	}
 
 	virtual void go() override {
+		this->m_sorter->pull_begin();
 		while (this->m_sorter->can_pull()) {
 			dest.push(this->m_sorter->pull());
 			this->step();
 		}
+		this->m_sorter->pull_end();
 	}
 
 protected:

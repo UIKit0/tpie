@@ -767,6 +767,51 @@ public:
 		return m_itemsPushed > m_itemsPulled;
 	}
 
+	///////////////////////////////////////////////////////////////////////////////
+	/// \brief Begin phase 3
+	///////////////////////////////////////////////////////////////////////////////
+	void pull_begin() {
+		log_debug() << "Resizing priority queue" << std::endl;
+		m_finalQueue.resize(m_parameters.finalFanout); // divided by 2?!?
+		log_debug() << "Allocating " << m_parameters.finalFanout << " read buffers" << std::endl;
+		for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i)
+			m_emptyReadBuffers.push(tpie_new<block>(block::mode::data));
+
+		tp_assert(m_runFiles.size() < m_parameters.finalFanout, "The number of run files in phase 3 is greater than the final fanout.");
+		log_debug() << "Creating sigma list" << std::endl;
+		for(memory_size_type i = 0; i < m_runFiles.size(); ++i) {
+			for(typename std::vector<T>::iterator j = m_phi[i].begin(); j < m_phi[i].end(); ++j) {
+				m_sigma.push_back(std::make_pair(*j, i));
+			}
+		}
+
+		tpie::parallel_sort(m_sigma.begin(), m_sigma.end(), predwrap<memory_size_type>(m_pred));
+
+		log_debug() << "Pushing " << m_sigma.end() - m_sigma.begin() << " read jobs" << std::endl;
+		for(typename std::vector<std::pair<T, memory_size_type> >::iterator i = m_sigma.begin(); i != m_sigma.end(); ++i) {
+			m_readJobs.push(i->second);
+		}
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+	/// \brief End phase 3
+	///////////////////////////////////////////////////////////////////////////////
+	void pull_end() {
+		tp_assert(m_finalQueue.empty(), "!can_pull() but the internal queue is not empty.")
+
+		m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
+		//++m_queuedWriteJobs;
+
+		for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i)
+			tpie_delete(m_emptyReadBuffers.pop());
+
+		while(!m_runFiles.empty()) {
+			m_runFiles.pop_front();
+		}
+
+		m_IOThread.join();
+	}
+
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief In phase 3, fetch next item in the final merge phase.
 	///////////////////////////////////////////////////////////////////////////
@@ -785,73 +830,35 @@ public:
 
 			return el;
 		}
-		else {
-			if(m_itemsPulled == 0) { // first item pulled -> initialization
-				log_debug() << "Resizing priority queue" << std::endl;
-				m_finalQueue.resize(m_parameters.finalFanout); // divided by 2?!?
-				log_debug() << "Allocating " << m_parameters.finalFanout << " read buffers" << std::endl;
-				for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i)
-					m_emptyReadBuffers.push(tpie_new<block>(block::mode::data));
 
-				log_debug() << "Creating sigma list" << std::endl;
-				for(memory_size_type i = 0; i < m_runFiles.size(); ++i) {
-					for(typename std::vector<T>::iterator j = m_phi[i].begin(); j < m_phi[i].end(); ++j) {
-						m_sigma.push_back(std::make_pair(*j, i));
-					}
-				}
-
-				tpie::parallel_sort(m_sigma.begin(), m_sigma.end(), predwrap<memory_size_type>(m_pred));
-
-				for(typename std::vector<std::pair<T, memory_size_type> >::iterator i = m_sigma.begin(); i != m_sigma.end(); ++i) {
-					m_readJobs.push(i->second);
-				}
-			}
-
-			// populate the queue if possible
-			tp_assert(!m_finalQueue.empty() || m_nextBlock < m_sigma.size(), "next_block is m_sigma.size() and the queue is empty.")
-			if(m_finalQueue.empty() || (m_nextBlock < m_sigma.size() && m_pred(m_sigma[m_nextBlock].first, m_finalQueue.top().first))) {
-				do {
-					block * b = m_fullReadBuffers.pop();
-					m_finalQueue.push(std::make_pair(b->m_data->front(), b));
-					b->m_data->pop_front();
-					++m_nextBlock;
-				}
-				while(!m_fullReadBuffers.empty());
-			}
-
-			const std::pair<T, block*> & top = m_finalQueue.top();
-			++m_itemsPulled;
-			T item = top.first;
-			block * b = top.second;
-
-			if(b->m_data->empty()) {
-				b->m_data->clear();
-				m_emptyReadBuffers.push(b);
-				m_finalQueue.pop();
-			}
-			else {
-				m_finalQueue.pop_and_push(std::make_pair(b->m_data->front(), b));
+		// populate the queue if necesary
+		tp_assert(!m_finalQueue.empty() || m_nextBlock < m_sigma.size(), "next_block is m_sigma.size() and the queue is empty.")
+		if(m_finalQueue.empty() || (m_nextBlock < m_sigma.size() && m_pred(m_sigma[m_nextBlock].first, m_finalQueue.top().first))) {
+			do {
+				block * b = m_fullReadBuffers.pop();
+				m_finalQueue.push(std::make_pair(b->m_data->front(), b));
 				b->m_data->pop_front();
+				++m_nextBlock;
 			}
-
-			if(!can_pull()) {
-				tp_assert(m_finalQueue.empty(), "!can_pull() but the internal queue is not empty.")
-
-				m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
-				++m_queuedWriteJobs;
-
-				for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i)
-					tpie_delete(m_emptyReadBuffers.pop());
-
-				while(!m_runFiles.empty()) {
-					m_runFiles.pop_front();
-				}
-
-				m_IOThread.join();
-			}
-
-			return item;
+			while(!m_fullReadBuffers.empty());
 		}
+
+		const std::pair<T, block*> & top = m_finalQueue.top();
+		++m_itemsPulled;
+		T item = top.first;
+		block * b = top.second;
+
+		if(b->m_data->empty()) {
+			b->m_data->clear();
+			m_emptyReadBuffers.push(b);
+			m_finalQueue.pop();
+		}
+		else {
+			m_finalQueue.pop_and_push(std::make_pair(b->m_data->front(), b));
+			b->m_data->pop_front();
+		}
+
+		return item;
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
