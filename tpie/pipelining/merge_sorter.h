@@ -33,6 +33,70 @@
 
 namespace tpie {
 
+
+namespace bits {
+	template<typename T, typename pred_t>
+	class tournament_tree {
+	public:
+		tournament_tree(T begin, T end, pred_t pred) : m_elements(end-begin-1), m_begin(begin), m_end(end), m_pred(pred) {
+			const memory_size_type n = end-begin;
+			const memory_size_type k = n/2-1;
+			for(memory_size_type i = 0; k+i < n-1; ++i) {
+				if(!m_pred(*(m_begin+2*i+1), *(m_begin+2*i))) {
+					m_elements[i+k] = 2*i;
+				}
+				else {
+					m_elements[i+k] = 2*i+1;
+				}
+			}
+
+			for(memory_size_type i = k; i > 0;) {
+				--i;
+				if(!m_pred(*(m_begin+m_elements[2*i+2]), *(m_begin+m_elements[2*i+1]))) {
+					m_elements[i] = m_elements[2*i+1];
+				}
+				else {
+					m_elements[i] = m_elements[2*i+2];
+				}
+			}
+		}
+
+		tournament_tree(pred_t pred) : m_pred(pred) {}
+
+		memory_size_type top() {
+			return m_elements[0];
+		}
+
+		void update_key(memory_size_type i) {
+			const memory_size_type n = m_end-m_begin;
+			const memory_size_type parent = i/2 + n/2 - 1;
+			if(!m_pred(*(m_begin+(i^1)), *(m_begin + i))) {
+				m_elements[parent] = i;
+			}
+			else {
+				m_elements[parent] = i^1;
+			}
+
+			memory_size_type j = parent;
+			while(j != 0) {
+				j = (j-1) / 2;
+				if(!m_pred(*(m_begin+m_elements[2*j+2]), *(m_begin+m_elements[2*j+1]))) {
+					m_elements[j] = m_elements[2*j+1];
+				}
+				else {
+					m_elements[j] = m_elements[2*j+2];
+				}
+			}
+		}
+	private:
+		tpie::array<memory_size_type> m_elements;
+		T m_begin;
+		T m_end;
+		pred_t m_pred;
+	};
+};
+
+
 ///////////////////////////////////////////////////////////////////////////////
 /// Merge sorting consists of three phases.
 ///
@@ -66,6 +130,10 @@ private:
 
 		void push_back(const T & el) {
 			m_elements.push_back(el);
+		}
+
+		void pop_back() {
+			m_elements.pop_back();
 		}
 
 		bool empty() const {
@@ -127,8 +195,7 @@ private:
 
 	typedef internal_offset_vector run_container_type;
 
-	class block { // used in the producer/consumer-pattern in phase 2 and 3
-	public:
+	struct block { // used in the producer/consumer-pattern in phase 2 and 3
 		struct mode { // C++03-style enum
 			enum type {
 				data,
@@ -155,9 +222,68 @@ private:
 		}
 
 		typename mode::type m_mode;
-		run_container_type *m_data; // If mode is set to data, this pointer will be set
+		bool last_block;
+		memory_size_type file;
+		run_container_type * m_data; // If mode is set to data, this pointer will be set
 	};
 
+	struct tournament_leaf {
+		block * block_pointer;
+		bool last_block;
+		T * begin;
+		T * end;
+
+		T smallest_element;
+	};
+
+	typedef std::vector<tournament_leaf> leaves;
+
+	template<typename S>
+	class predwrap {
+	public:
+		typedef const std::pair<T, S>& item_type;
+		typedef item_type first_argument_type;
+		typedef item_type second_argument_type;
+		typedef bool result_type;
+
+		predwrap(pred_t & pred) : m_pred(pred) {}
+
+		bool operator()(item_type a, item_type b) {
+			return m_pred(a.first, b.first);
+		}
+	private:
+		pred_t m_pred;
+	};
+
+	class tourn_pred {
+	public:
+		typedef const tournament_leaf& item_type;
+		typedef item_type first_argument_type;
+		typedef item_type second_argument_type;
+		typedef bool result_type;
+
+		tourn_pred(pred_t & pred) : m_pred(pred) {}
+
+		tourn_pred(const tourn_pred & other) : m_pred(other.m_pred) {}
+
+		bool operator()(const tournament_leaf& a, const tournament_leaf& b) {
+			return m_pred(a.smallest_element, b.smallest_element);
+		}
+	private:
+		pred_t m_pred;
+	};
+
+	enum reporting_mode {
+		REPORTING_MODE_INTERNAL, // do not write anything to disk. Phase 2 will be a no-op phase and phase 3 is simple array traversal
+		REPORTING_MODE_EXTERNAL
+	};
+
+	enum state_type {
+		STATE_PARAMETERS,
+		STATE_RUN_FORMATION,
+		STATE_MERGE,
+		STATE_REPORT
+	};
 public:
 	typedef boost::shared_ptr<merge_sorter> ptr;
 	typedef progress_types<UseProgress> Progress;
@@ -176,10 +302,10 @@ public:
 	, m_state(STATE_PARAMETERS)
 	, m_runsPushed(0)
 	, m_itemsPushed(0)
+	, m_largest_element_set(false)
 	, m_itemsPulled(0)
 	, m_queuedWriteJobs(0)
-	, m_nextBlock(0)
-	, m_finalQueue(0, predwrap<block*>(m_pred)) // set the size to 0 for now
+		, m_tournament_tree(tourn_pred(m_pred)) // set the size to 0 for now
 	{
 		m_parameters.memoryPhase1 = 0;
 		m_parameters.memoryPhase2 = 0;
@@ -363,11 +489,6 @@ public:
 
 			tpie::parallel_sort(run->begin(), run->end(), m_pred);
 
-			// calculate phi for this run
-			m_phi.push_back(std::vector<T>());
-			std::vector<T> & phi = m_phi.back();
-			for(memory_size_type i = 0; i < run->size(); i += get_block_size()/sizeof(T)) phi.push_back((*run)[i]);
-
 			m_sortedBuffers.push(run);
 		}
 	}
@@ -381,110 +502,107 @@ public:
 				break;
 			}
 
+			if(!m_largest_element_set || m_pred(m_largest_element, run->back())) {
+				m_largest_element = run->back();
+				m_largest_element_set = true;
+			}
+
 			temp_file runFile;
 			file_accessor::raw_file_accessor out;
 			out.open_wo(runFile.path()); // open for writing
-			out.write_i((void*) &run->front(), run->size() * sizeof(T));
+			out.write_i((void*) (&run->front() + 1), (run->size() - 1) * sizeof(T));
 			out.close_i();
 
 			m_runFiles.push_back(runFile);
-			m_runFileSizes.push_back(run->size() * sizeof(T));
+			m_smallestElements.push_back(run->front());
+			m_runFileSizes.push_back(run->size() - 1);
 			run->clear();
 			m_emptyBuffers.push(run); // push a new empty buffer
 		}
 
-		// phase 2 + 3
-		temp_file runFile;
-		file_accessor::raw_file_accessor out;
-		std::vector<T> phi;
-		out.open_wo(runFile.path());
-		memory_size_type outSize = 0;
+		// phase 2
 
-		std::vector<file_accessor::raw_file_accessor* > in;
+		// phase 3
+		tpie::array<file_accessor::raw_file_accessor> in(m_runFiles.size());
+		memory_size_type m = 0; // the number of elements left to read
 
-		while(true) {
-			if(!m_fullWriteBuffers.empty()) {
-				block * b = m_fullWriteBuffers.pop();
+		for(memory_size_type i = 0; i < m_runFiles.size(); ++i) {
+			in[i].open_ro(m_runFiles[i].path());
+			m += m_runFileSizes[i];
+		}
 
-				if(b->m_mode == block::mode::terminate_signal) {
-					tpie_delete(b);
-					--m_queuedWriteJobs;
-					break;
-				}
+		memory_size_type n = 2;
+		while(n < m_runFiles.size()) {
+			n *= 2;
+		}
 
-				if(b->m_mode == block::mode::run_signal) {
-					tpie_delete(b);
-					// save the run information
-					m_runFiles.push_back(runFile);
-					m_runFileSizes.push_back(outSize);
-					m_phi.push_back(phi);
+		tpie::array<T> runs(n);
+		std::copy(m_smallestElements.begin(), m_smallestElements.end(), runs.begin());
 
-					// begin a new run
-					runFile = temp_file();
-					out.close_i();
-					out.open_wo(runFile.path());
-					outSize = 0;
-					phi.clear();
+		for(memory_size_type i = m_runFiles.size(); i < n; ++i) {
+			runs[i] = m_largest_element;
+		}
 
-					// clear the input file list
-					for(typename std::vector<file_accessor::raw_file_accessor* >::iterator i = in.begin(); i != in.end(); ++i) {
-						(**i).close_i();
-						tpie_delete(*i);
-					}
-					in.clear();
+		bits::tournament_tree<typename tpie::array<T>::iterator, pred_t> tree(runs.begin(), runs.end(), m_pred);
 
-					--m_queuedWriteJobs;
-					continue;
-				}
-
-				phi.push_back(b->m_data->front());
-				out.write_i((void*) &b->m_data->front(), b->m_data->size() * sizeof(T));
-				outSize += b->m_data->size() * sizeof(T);
-
-				b->m_data->clear();
-				m_emptyWriteBuffers.push(b);
-
-				--m_queuedWriteJobs;
-				continue;
-			}
-
-			if(!m_emptyReadBuffers.empty() && !m_readJobs.empty()) {
+		while(m > 0) {
+			if(!m_emptyReadBuffers.empty()) {
 				block * b = m_emptyReadBuffers.pop();
-				memory_size_type run = m_readJobs.pop();
+				memory_size_type run = tree.top();
+				memory_size_type size = std::min(get_block_size() / sizeof(T), m_runFileSizes[run]);
 
-				while(in.size() <= run) {
-					file_accessor::raw_file_accessor * accessor = tpie_new<file_accessor::raw_file_accessor>();
-					accessor->open_ro(m_runFiles[in.size()].path());
-					in.push_back(accessor);
+				if(size < get_block_size() / sizeof(T)) {
+					// this is the last block of the run. The last element therefore need to be included
+					b->m_data->resize(size+1);
+					b->m_data->front() = runs[run];
+					in[run].read_i((void*) ((&b->m_data->front())+1), size * sizeof(T));
+
+					runs[run] = m_largest_element;
+					tree.update_key(run);
+
+					m_runFileSizes[run] -= size;
+					m -= size;
+
+					b->last_block = true;
+					b->file = run;
+					//log_debug() << "Pushing last read buffer" << std::endl;
+					m_fullReadBuffers.push(b);
+					//log_debug() << "Pushed last read buffer" << std::endl;
 				}
+				else {
+					b->m_data->resize(size); // the extra element is only used temporarily in this thread
+					b->m_data->front() = runs[run]; // the smallest element
+					in[run].read_i((void*) ((&b->m_data->front())+1), (size-1) * sizeof(T));
 
-				memory_size_type size = std::min(get_block_size(), m_runFileSizes[run]);
-				size = (size / sizeof(T)) * sizeof(T); // floor to nearest multiple.
-				b->m_data->resize(size / sizeof(T));
-				in[run]->read_i((void*) &b->m_data->front(), size);
+					runs[run] = b->m_data->back();
+					b->m_data->pop_back();
+					tree.update_key(run);
 
-				m_runFileSizes[run] -= size;
-				m_fullReadBuffers.push(b);
+					m_runFileSizes[run] -= size-1;
+					m -= size-1;
+
+					b->last_block = false;
+					b->file = run;
+					//log_debug() << "Pushing middle read buffer" << std::endl;
+					m_fullReadBuffers.push(b);
+					//log_debug() << "Pushed middle read buffer" << std::endl;
+				}
 				continue;
 			}
+
+			/*log_debug() << "Buffer queue is empty" << std::endl;
+			log_debug() << m_parameters.finalFanout << " " << m_runFiles.size() << std::endl;*/
 
 			// yield since there is no work to do at this point
 			boost::this_thread::yield();
 		}
-
-		// clean-up file accessors after phase 3
-		for(typename std::vector<file_accessor::raw_file_accessor* >::iterator i = in.begin(); i != in.end(); ++i) {
-			(**i).close_i();
-			tpie_delete(*i);
-		}
-		in.clear();
 	}
 
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Initiate phase 1: Formation of input runs.
 	///////////////////////////////////////////////////////////////////////////
 	void begin() {
-		log_debug() << "Beginning phase 1" << std::endl;
+		// log_debug()() << "Beginning phase 1" << std::endl;
 		tp_assert(m_parametersSet, "Parameters have not been set");
 		m_state = STATE_RUN_FORMATION;
 
@@ -579,7 +697,7 @@ private:
 	/// to the end
 	///////////////////////////////////////////////////////////////////////////////
 	void merge_runs(memory_size_type n, typename Progress::base & pi) {
-		log_debug() << "Merging " << n << std::endl;
+		/*log_debug() << "Merging " << n << std::endl;
 		if(n > m_runFiles.size()) {
 			n = m_runFiles.size();
 		}
@@ -654,7 +772,7 @@ private:
 			m_runFiles.pop_front();
 			m_runFileSizes.pop_front();
 			m_phi.pop_front();
-		}
+		}*/
 	}
 
 public:
@@ -663,7 +781,8 @@ public:
 	/// \brief Perform phase 2: Performing all merges in the merge tree
 	///////////////////////////////////////////////////////////////////////////
 	void calc(typename Progress::base & pi) {
-		tpie::log_debug() << "Performing phase 2" << std::endl;
+		log_debug() << "Performing phase 2" << std::endl;
+		log_debug() << "Merge until " << m_runFiles.size() << " <= " << m_parameters.finalFanout << std::endl;
 
 		if(m_reporting_mode == REPORTING_MODE_INTERNAL) {
 			pi.init(1);
@@ -672,7 +791,8 @@ public:
 		}
 		else {
 			if(m_runFiles.size() > m_parameters.finalFanout) {
-				memory_size_type treeHeight = static_cast<int> (
+				tp_assert(false, "Phase 2 is not implemented yet");
+			/*	memory_size_type treeHeight = static_cast<int> (
 					ceil(log(static_cast<float>(m_runFiles.size()))) / ceil(log(static_cast<float>(m_parameters.fanout)))
 				); // the number of merge 'rounds' to be performed.
 
@@ -697,7 +817,7 @@ public:
 				for(memory_size_type i = 0; i < writebufferCount; ++i)
 					tpie_delete(m_emptyWriteBuffers.pop());
 
-				pi.done();
+				pi.done();*/
 			}
 			else {
 				pi.init(1);
@@ -720,7 +840,7 @@ public:
 
 		if(m_reporting_mode == REPORTING_MODE_INTERNAL) {
 			if(m_currentRun != NULL) { // the buffer is non-empty -> write the buffer to disk
-				m_reporting_mode = REPORTING_MODE_EXTERNAL; // write the buffer to disk and use external reporting mode
+				/*m_reporting_mode = REPORTING_MODE_EXTERNAL; // write the buffer to disk and use external reporting mode
 				temp_file runFile;
 				file_accessor::raw_file_accessor out;
 				out.open_wo(runFile.path()); // open for writing
@@ -734,7 +854,8 @@ public:
 				std::vector<T> & phi = m_phi.back();
 				for(memory_size_type i = 0; i < m_currentRun->size(); i += get_block_size()/sizeof(T)) phi.push_back((*m_currentRun)[i]);
 
-				tpie_delete(m_currentRun);
+				tpie_delete(m_currentRun);*/
+				tp_assert(false, "not implemented yet");
 			}
 		}
 		else {
@@ -771,94 +892,153 @@ public:
 	/// \brief Begin phase 3
 	///////////////////////////////////////////////////////////////////////////////
 	void pull_begin() {
-		log_debug() << "Resizing priority queue" << std::endl;
-		m_finalQueue.resize(m_parameters.finalFanout); // divided by 2?!?
-		log_debug() << "Allocating " << m_parameters.finalFanout << " read buffers" << std::endl;
+		// log_debug()() << "Pull begin called" << std::endl;
+		// log_debug()() << "Merging " << m_runFiles.size() << std::endl;
+
+		if(m_reporting_mode == REPORTING_MODE_INTERNAL) { // nothing to do in internal reporting mode
+			return;
+		}
+
+		// initialize tournament tree
+		// Let the size be the next power of 2
+		memory_size_type n = 2;
+		while(n < m_runFiles.size()) {
+			n *= 2;
+		}
+		m_leaves.resize(n);
+
+		for(memory_size_type i = 0; i < m_runFiles.size(); ++i) {
+			tournament_leaf & leaf = m_leaves[i];
+			leaf.smallest_element = m_smallestElements[i];
+			leaf.last_block	= false;
+			leaf.begin = leaf.end = NULL;
+			leaf.block_pointer = NULL;
+		}
+
+		for(memory_size_type i = m_runFiles.size(); i < n; ++i) {
+			tournament_leaf & leaf = m_leaves[i];
+			leaf.smallest_element = m_largest_element;
+			leaf.last_block	= true;
+			leaf.begin = leaf.end = NULL;
+			leaf.block_pointer = NULL;
+		}
+
+		m_tournament_tree = bits::tournament_tree<typename leaves::iterator, tourn_pred>(m_leaves.begin(), m_leaves.end(), tourn_pred(m_pred));
+
+		// initialize IO
+		// log_debug()() << "Creating " << m_parameters.finalFanout << " buffers." << std::endl;
 		for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i)
 			m_emptyReadBuffers.push(tpie_new<block>(block::mode::data));
-
-		tp_assert(m_runFiles.size() < m_parameters.finalFanout, "The number of run files in phase 3 is greater than the final fanout.");
-		log_debug() << "Creating sigma list" << std::endl;
-		for(memory_size_type i = 0; i < m_runFiles.size(); ++i) {
-			for(typename std::vector<T>::iterator j = m_phi[i].begin(); j < m_phi[i].end(); ++j) {
-				m_sigma.push_back(std::make_pair(*j, i));
-			}
-		}
-
-		tpie::parallel_sort(m_sigma.begin(), m_sigma.end(), predwrap<memory_size_type>(m_pred));
-
-		log_debug() << "Pushing " << m_sigma.end() - m_sigma.begin() << " read jobs" << std::endl;
-		for(typename std::vector<std::pair<T, memory_size_type> >::iterator i = m_sigma.begin(); i != m_sigma.end(); ++i) {
-			m_readJobs.push(i->second);
-		}
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
 	/// \brief End phase 3
 	///////////////////////////////////////////////////////////////////////////////
 	void pull_end() {
-		tp_assert(m_finalQueue.empty(), "!can_pull() but the internal queue is not empty.")
+		// log_debug()() << "Pull end called" << std::endl;
+		if(m_reporting_mode == REPORTING_MODE_INTERNAL)  {
+			tpie_delete(m_currentRun);
+
+			m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
+			++m_queuedWriteJobs;
+			m_IOThread.join();
+			return;
+		}
 
 		m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
-		//++m_queuedWriteJobs;
+		m_IOThread.join();
 
-		for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i)
+		for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i) {
+			if(m_leaves[i].block_pointer != NULL) {
+				m_emptyReadBuffers.push(m_leaves[i].block_pointer);
+			}
+		}
+
+		// log_debug()() << "Deleting " << m_parameters.finalFanout << " buffers." << std::endl;
+		for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i) {
 			tpie_delete(m_emptyReadBuffers.pop());
+		}
 
 		while(!m_runFiles.empty()) {
 			m_runFiles.pop_front();
 		}
-
-		m_IOThread.join();
 	}
 
-	///////////////////////////////////////////////////////////////////////////
-	/// \brief In phase 3, fetch next item in the final merge phase.
-	///////////////////////////////////////////////////////////////////////////
+	void fetch_blocks(memory_size_type i) {
+		//log_debug() << std::endl << "> Fetching block" << std::endl;
+		// log_debug()() << "Fetching " << i << std::endl;
+		tournament_leaf	& leaf = m_leaves[i];
+		if(leaf.last_block) {
+			// log_debug()() << "Last block" << std::endl;
+			if(leaf.block_pointer != NULL) {
+				// log_debug()() << "Not null" << std::endl;
+				//tp_assert(leaf.block_pointer != NULL, "Block pointer is null.");
+				m_emptyReadBuffers.push(leaf.block_pointer);
+
+				leaf.block_pointer = NULL;
+				// log_debug()() << m_largest_element << std::endl;
+				leaf.end = leaf.begin = &m_largest_element;
+				++leaf.end;
+			}
+
+			return;
+		}
+
+		//log_debug() << "|> Entering loop" << std::endl;
+		while(true) {
+			//log_debug() << "|| Begin iteration" << std::endl;
+			block * b = m_fullReadBuffers.pop();
+			//log_debug() << "|| Popping from read buffers" << std::endl;
+			// log_debug()() << "Fetching block from file " << b->file << std::endl;
+			// log_debug()() << "\tSmallest element " << b->m_data->front() << std::endl;
+			tournament_leaf & leaf = m_leaves[b->file];
+			tp_assert(leaf.begin == leaf.end, "Not empty");
+			tp_assert(b != NULL, "the block is null");
+			tp_assert(b->m_data != NULL, "the data is null");
+			tp_assert(!b->m_data->empty(), "block is empty");
+			leaf.begin = &((*b->m_data)[0]);
+			leaf.last_block = b->last_block;
+			leaf.end = &((*b->m_data)[0]) + b->m_data->size();
+			if(leaf.block_pointer != NULL) {
+				m_emptyReadBuffers.push(leaf.block_pointer);
+			}
+			leaf.block_pointer = b;
+
+			//log_debug() << "|| File is " << b->file << ". i is " << i << std::endl;
+			if(b->file == i)
+				break;
+		}
+		//log_debug() << "|x Exiting loop" << std::endl;
+
+		//log_debug() << "x Done fetching block" << std::endl;
+	}
+
 	T pull() {
-		tp_assert(m_state == STATE_REPORT, "Wrong phase");
+		//log_debug() << std::endl << "> Begin pull" << std::endl;
 		if(m_reporting_mode == REPORTING_MODE_INTERNAL) {
-			T el = (*m_currentRun)[m_itemsPulled++];
-
-			if(!can_pull()) {
-				tpie_delete(m_currentRun);
-
-				m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
-				++m_queuedWriteJobs;
-				m_IOThread.join();
-			}
-
-			return el;
+			return (*m_currentRun)[m_itemsPulled++];
 		}
 
-		// populate the queue if necesary
-		tp_assert(!m_finalQueue.empty() || m_nextBlock < m_sigma.size(), "next_block is m_sigma.size() and the queue is empty.")
-		if(m_finalQueue.empty() || (m_nextBlock < m_sigma.size() && m_pred(m_sigma[m_nextBlock].first, m_finalQueue.top().first))) {
-			do {
-				block * b = m_fullReadBuffers.pop();
-				m_finalQueue.push(std::make_pair(b->m_data->front(), b));
-				b->m_data->pop_front();
-				++m_nextBlock;
-			}
-			while(!m_fullReadBuffers.empty());
+		memory_size_type index = m_tournament_tree.top();
+		tournament_leaf & leaf = m_leaves[index];
+
+		T res = leaf.smallest_element;
+		//// log_debug()() << "Pulling " << res << " from file " << index << std::endl;
+
+		if(leaf.begin == leaf.end) {
+			fetch_blocks(index);
 		}
 
-		const std::pair<T, block*> & top = m_finalQueue.top();
+		leaf.smallest_element = *leaf.begin;
+		++leaf.begin;
+		m_tournament_tree.update_key(index);
 		++m_itemsPulled;
-		T item = top.first;
-		block * b = top.second;
 
-		if(b->m_data->empty()) {
-			b->m_data->clear();
-			m_emptyReadBuffers.push(b);
-			m_finalQueue.pop();
-		}
-		else {
-			m_finalQueue.pop_and_push(std::make_pair(b->m_data->front(), b));
-			b->m_data->pop_front();
-		}
+		//log_debug() << "x End pull" << std::endl;
 
-		return item;
+		//log_debug() << "Pulled " << res << " from " << index << std::endl;
+
+		return res;
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -919,35 +1099,6 @@ public:
 	}
 
 private:
-	template<typename S>
-	class predwrap {
-	public:
-		typedef const std::pair<T, S>& item_type;
-		typedef item_type first_argument_type;
-		typedef item_type second_argument_type;
-		typedef bool result_type;
-
-		predwrap(pred_t & pred) : m_pred(pred) {}
-
-		bool operator()(const std::pair<T, S>& a, const std::pair<T, S>& b) {
-			return m_pred(a.first, b.first);
-		}
-	private:
-		pred_t & m_pred;
-	};
-
-	enum reporting_mode {
-		REPORTING_MODE_INTERNAL, // do not write anything to disk. Phase 2 will be a no-op phase and phase 3 is simple array traversal
-		REPORTING_MODE_EXTERNAL
-	};
-
-	enum state_type {
-		STATE_PARAMETERS,
-		STATE_RUN_FORMATION,
-		STATE_MERGE,
-		STATE_REPORT
-	};
-
 	sort_parameters m_parameters;
 	bool m_parametersSet;
 	pred_t m_pred;
@@ -958,11 +1109,12 @@ private:
 	memory_size_type m_itemsPulled;
 
 	run_container_type * m_currentRun;
+	T m_largest_element;
+	bool m_largest_element_set;
 
 	// as far as i can see these do not need to be locked with a mutex
 	std::deque<temp_file> m_runFiles;
-	std::deque<memory_size_type> m_runFileSizes; // given in bytes
-	std::deque<std::vector<T> > m_phi; // contains vectors of the smallest elements of each block in each run
+	std::deque<memory_size_type> m_runFileSizes;
 
 	// phase 1 specific
 	bits::blocking_queue<run_container_type *> m_emptyBuffers; // the buffers that are to be consumed by the push method
@@ -971,18 +1123,16 @@ private:
 	boost::thread m_sortThread; // The thread in phase 1 used to sort run formations
 	boost::thread m_IOThread; // The thread in phase 1 used to write run formations to file
 
-	// phase 2 specific
-	bits::blocking_queue<memory_size_type> m_readJobs;
+	// phase 2 + 3 specific
+	std::deque<T> m_smallestElements;
 	bits::blocking_queue<block*> m_emptyWriteBuffers;
 	bits::blocking_queue<block*> m_emptyReadBuffers;
 	bits::blocking_queue<block*> m_fullWriteBuffers;
 	bits::blocking_queue<block*> m_fullReadBuffers;
 	boost::atomic<memory_size_type> m_queuedWriteJobs;
 
-	// phase 3 specific
-	memory_size_type m_nextBlock;
-	std::vector<std::pair<T, memory_size_type> > m_sigma;
-	tpie::internal_priority_queue<std::pair<T, block*>, predwrap<block*> > m_finalQueue;
+	leaves m_leaves;
+	bits::tournament_tree<typename leaves::iterator, tourn_pred> m_tournament_tree;
 };
 
 } // namespace tpie

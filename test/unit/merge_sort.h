@@ -120,6 +120,7 @@ static bool sort_test(memory_size_type m1,
 
 	log_debug() << "Begin phase 3" << std::endl;
 	m.set_threshold(m3);
+	s.pull_begin();
 	if (!m.below()) return false;
 	test_t prev = std::numeric_limits<test_t>::min();
 	memory_size_type itemsRead = 0;
@@ -129,6 +130,7 @@ static bool sort_test(memory_size_type m1,
 		if (!m.below()) return false;
 		if (read < prev) {
 			log_error() << "Out of order" << std::endl;
+			tp_assert(false, "Out of order");
 			return false;
 		}
 		prev = read;
@@ -139,6 +141,8 @@ static bool sort_test(memory_size_type m1,
 		log_error() << "Read the wrong number of items. Got " << itemsRead << ", expected " << items << std::endl;
 		return false;
 	}
+
+	s.pull_end();
 
 	log_debug() << "MEMORY USED: " << m.used() << '/' << s.evacuated_memory_usage() << std::endl;
 	if (!m.below(s.evacuated_memory_usage())) return false;
@@ -166,6 +170,10 @@ static bool external_report_test() {
 	return sort_test(20,20,20,50);
 }
 
+static bool large_external_report_test() {
+	return sort_test(100,100,100,100);
+}
+
 static bool small_final_fanout_test(double mb) {
 	return sort_test(3,12,7,mb);
 }
@@ -187,6 +195,7 @@ static tests & add_all(tests & t) {
 		.test(internal_report_after_resize_test, "internal_report_after_resize")
 		.test(one_run_external_report_test, "one_run_external_report")
 		.test(external_report_test, "external_report")
+		.test(large_external_report_test, "large_external_report")
 		.test(small_final_fanout_test, "small_final_fanout", "mb", 8.0)
 		.test(evacuate_before_merge_test, "evacuate_before_merge")
 		.test(evacuate_before_report_test, "evacuate_before_report")
