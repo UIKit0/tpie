@@ -384,6 +384,7 @@ private:
 		///////////////////////////////////////////////////////////////////////////////
 
 		m_parameters.runLength = (m_parameters.memoryPhase1 - sizeof(merge_sorter<T, UseProgress, pred_t>)) / (sizeof(T) * bufferCount);
+		m_desiredSize = m_parameters.runLength;
 
 		// if we receive less items than internalReportThreshold, internal report mode will be used(no I/O)
 		m_parameters.internalReportThreshold = std::min(m_parameters.memoryPhase1, std::min(m_parameters.memoryPhase2, m_parameters.memoryPhase3)) / sizeof(T);
@@ -610,19 +611,23 @@ public:
 		m_sortThread = boost::thread(boost::bind(&merge_sorter::phase1_sort_thread, this)); // perform the rest of the initialization in the sort thread
 	}
 
+private:
+	void push_run() {
+		m_fullBuffers.push(m_currentRun);
+		m_currentRun = m_emptyBuffers.pop();
+		++m_runsPushed;
+		if(m_runsPushed == 1)
+			m_desiredSize = m_parameters.runLength/2;
+		else
+			m_desiredSize = m_parameters.runLength;
+	}
+
+public:
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Push item to merge sorter during phase 1.
 	///////////////////////////////////////////////////////////////////////////
 	void push(const T & item) {
-		memory_size_type desired_size = m_parameters.runLength;
-		if(m_runsPushed == 0) desired_size /= 3;
-		else if(m_runsPushed == 1) desired_size /= 2;
-
-		if(m_currentRun->size() == desired_size) {
-			m_fullBuffers.push(m_currentRun);
-			m_currentRun = m_emptyBuffers.pop();
-			++m_runsPushed;
-		}
+		if(m_currentRun->size() == m_desiredSize) push_run(); // push the run to the sort thread and fetch a new empty buffer
 
 		m_currentRun->push_back(item);
 		++m_itemsPushed;
@@ -1107,6 +1112,7 @@ private:
 	memory_size_type m_runsPushed;
 	memory_size_type m_itemsPushed;
 	memory_size_type m_itemsPulled;
+	memory_size_type m_desiredSize;
 
 	run_container_type * m_currentRun;
 	T m_largest_element;
