@@ -301,9 +301,9 @@ public:
 	, m_reporting_mode(REPORTING_MODE_EXTERNAL)
 	, m_state(STATE_PARAMETERS)
 	, m_runsPushed(0)
+	, m_itemsLeft(0)
 	, m_itemsPushed(0)
 	, m_largest_element_set(false)
-	, m_itemsPulled(0)
 	, m_queuedWriteJobs(0)
 		, m_tournament_tree(tourn_pred(m_pred)) // set the size to 0 for now
 	{
@@ -547,55 +547,42 @@ public:
 		bits::tournament_tree<typename tpie::array<T>::iterator, pred_t> tree(runs.begin(), runs.end(), m_pred);
 
 		while(m > 0) {
-			if(!m_emptyReadBuffers.empty()) {
-				block * b = m_emptyReadBuffers.pop();
-				memory_size_type run = tree.top();
-				memory_size_type size = std::min(get_block_size() / sizeof(T), m_runFileSizes[run]);
+			block * b = m_emptyReadBuffers.pop();
+			memory_size_type run = tree.top();
+			memory_size_type size = std::min(get_block_size() / sizeof(T), m_runFileSizes[run]);
 
-				if(size < get_block_size() / sizeof(T)) {
-					// this is the last block of the run. The last element therefore need to be included
-					b->m_data->resize(size+1);
-					b->m_data->front() = runs[run];
-					in[run].read_i((void*) ((&b->m_data->front())+1), size * sizeof(T));
+			if(size < get_block_size() / sizeof(T)) {
+				// this is the last block of the run. The last element therefore need to be included
+				b->m_data->resize(size+1);
+				b->m_data->front() = runs[run];
+				in[run].read_i((void*) ((&b->m_data->front())+1), size * sizeof(T));
 
-					runs[run] = m_largest_element;
-					tree.update_key(run);
+				runs[run] = m_largest_element;
 
-					m_runFileSizes[run] -= size;
-					m -= size;
+				m_runFileSizes[run] -= size;
+				m -= size;
 
-					b->last_block = true;
-					b->file = run;
-					//log_debug() << "Pushing last read buffer" << std::endl;
-					m_fullReadBuffers.push(b);
-					//log_debug() << "Pushed last read buffer" << std::endl;
-				}
-				else {
-					b->m_data->resize(size); // the extra element is only used temporarily in this thread
-					b->m_data->front() = runs[run]; // the smallest element
-					in[run].read_i((void*) ((&b->m_data->front())+1), (size-1) * sizeof(T));
+				b->last_block = true;
+			}
+			else {
+				b->m_data->resize(size); // the extra element is only used temporarily in this thread
+				b->m_data->front() = runs[run]; // the smallest element
+				in[run].read_i((void*) ((&b->m_data->front())+1), (size-1) * sizeof(T));
 
-					runs[run] = b->m_data->back();
-					b->m_data->pop_back();
-					tree.update_key(run);
+				runs[run] = b->m_data->back();
+				b->m_data->pop_back();
 
-					m_runFileSizes[run] -= size-1;
-					m -= size-1;
+				m_runFileSizes[run] -= size-1;
+				m -= size-1;
 
-					b->last_block = false;
-					b->file = run;
-					//log_debug() << "Pushing middle read buffer" << std::endl;
-					m_fullReadBuffers.push(b);
-					//log_debug() << "Pushed middle read buffer" << std::endl;
-				}
-				continue;
+				b->last_block = false;
 			}
 
-			/*log_debug() << "Buffer queue is empty" << std::endl;
-			log_debug() << m_parameters.finalFanout << " " << m_runFiles.size() << std::endl;*/
-
-			// yield since there is no work to do at this point
-			boost::this_thread::yield();
+			tree.update_key(run);
+			b->file = run;
+			//log_debug() << "Pushing middle read buffer" << std::endl;
+			m_fullReadBuffers.push(b);
+			//log_debug() << "Pushed middle read buffer" << std::endl;
 		}
 	}
 
@@ -638,6 +625,8 @@ public:
 	///////////////////////////////////////////////////////////////////////////
 	void end() {
 		// Set to internal reporting mode if possible
+
+		m_itemsLeft = m_itemsPushed;
 
 		if(m_runsPushed == 0 && m_itemsPushed <= m_parameters.internalReportThreshold) {
 			/*log_info() << "Internal reporting mode set. " << std::endl;
@@ -880,7 +869,7 @@ public:
 	/// \brief Evacuate if we are in the reporting state
 	///////////////////////////////////////////////////////////////////////////////
 	void evacuate_before_reporting() {
-		if(m_state == STATE_REPORT && (m_reporting_mode == REPORTING_MODE_INTERNAL || m_itemsPulled == 0))
+		if(m_state == STATE_REPORT && (m_reporting_mode == REPORTING_MODE_INTERNAL || m_itemsLeft == m_itemsPushed))
 			evacuate();
 	}
 
@@ -888,9 +877,9 @@ public:
 	/// \brief In phase 3, return true if there are more items in the final merge
 	/// phase.
 	///////////////////////////////////////////////////////////////////////////
-	bool can_pull() {
+	bool can_pull() const {
 		tp_assert(m_state == STATE_REPORT, "Wrong phase");
-		return m_itemsPushed > m_itemsPulled;
+		return m_itemsLeft != 0;
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -1021,7 +1010,7 @@ public:
 	T pull() {
 		//log_debug() << std::endl << "> Begin pull" << std::endl;
 		if(m_reporting_mode == REPORTING_MODE_INTERNAL) {
-			return (*m_currentRun)[m_itemsPulled++];
+			return (*m_currentRun)[m_itemsPushed-(m_itemsLeft--)];
 		}
 
 		memory_size_type index = m_tournament_tree.top();
@@ -1037,7 +1026,7 @@ public:
 		leaf.smallest_element = *leaf.begin;
 		++leaf.begin;
 		m_tournament_tree.update_key(index);
-		++m_itemsPulled;
+		--m_itemsLeft;
 
 		//log_debug() << "x End pull" << std::endl;
 
@@ -1050,7 +1039,7 @@ public:
 	/// \brief Return the number of items in the sorter
 	///////////////////////////////////////////////////////////////////////////////
 	stream_size_type item_count() {
-		return m_itemsPushed - m_itemsPulled;
+		return m_itemsLeft;
 	}
 public:
 	static memory_size_type memory_usage_phase_1(const sort_parameters & params) {
@@ -1110,8 +1099,8 @@ private:
 	reporting_mode m_reporting_mode;
 	state_type m_state;
 	memory_size_type m_runsPushed;
+	memory_size_type m_itemsLeft;
 	memory_size_type m_itemsPushed;
-	memory_size_type m_itemsPulled;
 	memory_size_type m_desiredSize;
 
 	run_container_type * m_currentRun;
