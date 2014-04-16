@@ -303,9 +303,9 @@ public:
 	, m_runsPushed(0)
 	, m_itemsLeft(0)
 	, m_itemsPushed(0)
-	, m_largest_element_set(false)
+	, m_largestElementSet(false)
 	, m_queuedWriteJobs(0)
-		, m_tournament_tree(tourn_pred(m_pred)) // set the size to 0 for now
+		, m_tournamentTree(tourn_pred(m_pred)) // set the size to 0 for now
 	{
 		m_parameters.memoryPhase1 = 0;
 		m_parameters.memoryPhase2 = 0;
@@ -503,9 +503,9 @@ public:
 				break;
 			}
 
-			if(!m_largest_element_set || m_pred(m_largest_element, run->back())) {
-				m_largest_element = run->back();
-				m_largest_element_set = true;
+			if(!m_largestElementSet || m_pred(m_largestElement, run->back())) {
+				m_largestElement = run->back();
+				m_largestElementSet = true;
 			}
 
 			temp_file runFile;
@@ -541,7 +541,7 @@ public:
 		std::copy(m_smallestElements.begin(), m_smallestElements.end(), runs.begin());
 
 		for(memory_size_type i = m_runFiles.size(); i < n; ++i) {
-			runs[i] = m_largest_element;
+			runs[i] = m_largestElement;
 		}
 
 		bits::tournament_tree<typename tpie::array<T>::iterator, pred_t> tree(runs.begin(), runs.end(), m_pred);
@@ -557,7 +557,7 @@ public:
 				b->m_data->front() = runs[run];
 				in[run].read_i((void*) ((&b->m_data->front())+1), size * sizeof(T));
 
-				runs[run] = m_largest_element;
+				runs[run] = m_largestElement;
 
 				m_runFileSizes[run] -= size;
 				m -= size;
@@ -911,13 +911,13 @@ public:
 
 		for(memory_size_type i = m_runFiles.size(); i < n; ++i) {
 			tournament_leaf & leaf = m_leaves[i];
-			leaf.smallest_element = m_largest_element;
+			leaf.smallest_element = m_largestElement;
 			leaf.last_block	= true;
 			leaf.begin = leaf.end = NULL;
 			leaf.block_pointer = NULL;
 		}
 
-		m_tournament_tree = bits::tournament_tree<typename leaves::iterator, tourn_pred>(m_leaves.begin(), m_leaves.end(), tourn_pred(m_pred));
+		m_tournamentTree = bits::tournament_tree<typename leaves::iterator, tourn_pred>(m_leaves.begin(), m_leaves.end(), tourn_pred(m_pred));
 
 		// initialize IO
 		// log_debug()() << "Creating " << m_parameters.finalFanout << " buffers." << std::endl;
@@ -970,8 +970,8 @@ public:
 				m_emptyReadBuffers.push(leaf.block_pointer);
 
 				leaf.block_pointer = NULL;
-				// log_debug()() << m_largest_element << std::endl;
-				leaf.end = leaf.begin = &m_largest_element;
+				// log_debug()() << m_largestElement << std::endl;
+				leaf.end = leaf.begin = &m_largestElement;
 				++leaf.end;
 			}
 
@@ -1013,7 +1013,7 @@ public:
 			return (*m_currentRun)[m_itemsPushed-(m_itemsLeft--)];
 		}
 
-		memory_size_type index = m_tournament_tree.top();
+		memory_size_type index = m_tournamentTree.top();
 		tournament_leaf & leaf = m_leaves[index];
 
 		T res = leaf.smallest_element;
@@ -1025,7 +1025,7 @@ public:
 
 		leaf.smallest_element = *leaf.begin;
 		++leaf.begin;
-		m_tournament_tree.update_key(index);
+		m_tournamentTree.update_key(index);
 		--m_itemsLeft;
 
 		//log_debug() << "x End pull" << std::endl;
@@ -1104,8 +1104,8 @@ private:
 	memory_size_type m_desiredSize;
 
 	run_container_type * m_currentRun;
-	T m_largest_element;
-	bool m_largest_element_set;
+	T m_largestElement;
+	bool m_largestElementSet;
 
 	// as far as i can see these do not need to be locked with a mutex
 	std::deque<temp_file> m_runFiles;
@@ -1127,7 +1127,7 @@ private:
 	boost::atomic<memory_size_type> m_queuedWriteJobs;
 
 	leaves m_leaves;
-	bits::tournament_tree<typename leaves::iterator, tourn_pred> m_tournament_tree;
+	bits::tournament_tree<typename leaves::iterator, tourn_pred> m_tournamentTree;
 };
 
 } // namespace tpie
