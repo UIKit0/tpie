@@ -110,6 +110,7 @@ set (HEADERS
 		stats.h
 		types.h
 		tempname.h
+		tournament_tree.h
 		unused.h
 		util.h
 		array.h

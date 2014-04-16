@@ -28,74 +28,11 @@
 #include <tpie/parallel_sort.h>
 #include <tpie/internal_priority_queue.h>
 #include <tpie/internal_vector.h>
+#include <tpie/tournament_tree.h>
 #include <deque>
 #include <boost/atomic.hpp>
 
 namespace tpie {
-
-
-namespace bits {
-	template<typename T, typename pred_t>
-	class tournament_tree {
-	public:
-		tournament_tree(T begin, T end, pred_t pred) : m_elements(end-begin-1), m_begin(begin), m_end(end), m_pred(pred) {
-			const memory_size_type n = end-begin;
-			const memory_size_type k = n/2-1;
-			for(memory_size_type i = 0; k+i < n-1; ++i) {
-				if(!m_pred(*(m_begin+2*i+1), *(m_begin+2*i))) {
-					m_elements[i+k] = 2*i;
-				}
-				else {
-					m_elements[i+k] = 2*i+1;
-				}
-			}
-
-			for(memory_size_type i = k; i > 0;) {
-				--i;
-				if(!m_pred(*(m_begin+m_elements[2*i+2]), *(m_begin+m_elements[2*i+1]))) {
-					m_elements[i] = m_elements[2*i+1];
-				}
-				else {
-					m_elements[i] = m_elements[2*i+2];
-				}
-			}
-		}
-
-		tournament_tree(pred_t pred) : m_pred(pred) {}
-
-		memory_size_type top() {
-			return m_elements[0];
-		}
-
-		void update_key(memory_size_type i) {
-			const memory_size_type n = m_end-m_begin;
-			const memory_size_type parent = i/2 + n/2 - 1;
-			if(!m_pred(*(m_begin+(i^1)), *(m_begin + i))) {
-				m_elements[parent] = i;
-			}
-			else {
-				m_elements[parent] = i^1;
-			}
-
-			memory_size_type j = parent;
-			while(j != 0) {
-				j = (j-1) / 2;
-				if(!m_pred(*(m_begin+m_elements[2*j+2]), *(m_begin+m_elements[2*j+1]))) {
-					m_elements[j] = m_elements[2*j+1];
-				}
-				else {
-					m_elements[j] = m_elements[2*j+2];
-				}
-			}
-		}
-	private:
-		tpie::array<memory_size_type> m_elements;
-		T m_begin;
-		T m_end;
-		pred_t m_pred;
-	};
-};
-
 
 ///////////////////////////////////////////////////////////////////////////////
 /// Merge sorting consists of three phases.
