@@ -508,11 +508,9 @@ public:
 
 			tree.update_key(run);
 			b->file = run;
-			//log_debug() << "Pushing middle read buffer" << std::endl;
 
 			boost::mutex::scoped_lock lock(m_mutex);
 			m_fullReadBuffers.push(b);
-			//log_debug() << "Pushed middle read buffer" << std::endl;
 			lock.unlock(); // avoid problems if a waiting thread immediately wakes up
 			m_condition.notify_one();
 		}
@@ -522,7 +520,7 @@ public:
 	/// \brief Initiate phase 1: Formation of input runs.
 	///////////////////////////////////////////////////////////////////////////
 	void begin() {
-		// log_debug()() << "Beginning phase 1" << std::endl;
+		log_debug() << "Starting merge sorter phase 1" << std::endl;
 		tp_assert(m_parametersSet, "Parameters have not been set");
 		m_state = STATE_RUN_FORMATION;
 
@@ -706,9 +704,7 @@ public:
 	/// \brief Perform phase 2: Performing all merges in the merge tree
 	///////////////////////////////////////////////////////////////////////////
 	void calc(typename Progress::base & pi) {
-		log_debug() << "Performing phase 2" << std::endl;
-		log_debug() << "Merge until " << m_runFiles.size() << " <= " << m_parameters.finalFanout << std::endl;
-
+		log_debug() << "Starting merge sorter phase 2" << std::endl;
 		if(m_reporting_mode == REPORTING_MODE_INTERNAL) {
 			pi.init(1);
 			pi.step();
@@ -817,9 +813,7 @@ public:
 	/// \brief Begin phase 3
 	///////////////////////////////////////////////////////////////////////////////
 	void pull_begin() {
-		// log_debug()() << "Pull begin called" << std::endl;
-		// log_debug()() << "Merging " << m_runFiles.size() << std::endl;
-
+		log_debug() << "Starting merge sorter phase 3" << std::endl;
 		if(m_reporting_mode == REPORTING_MODE_INTERNAL) { // nothing to do in internal reporting mode
 			return;
 		}
@@ -851,7 +845,6 @@ public:
 		m_tournamentTree = bits::tournament_tree<typename leaves::iterator, tourn_pred>(m_leaves.begin(), m_leaves.end(), tourn_pred(m_pred));
 
 		// initialize IO
-		// log_debug()() << "Creating " << m_parameters.finalFanout << " buffers." << std::endl;
 		{
 			boost::mutex::scoped_lock lock(m_mutex);
 			for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i)
@@ -865,7 +858,6 @@ public:
 	/// \brief End phase 3
 	///////////////////////////////////////////////////////////////////////////////
 	void pull_end() {
-		// log_debug()() << "Pull end called" << std::endl;
 		{
 			boost::mutex::scoped_lock lock(m_mutex);
 			m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
@@ -887,7 +879,6 @@ public:
 			}
 		}
 
-		// log_debug()() << "Deleting " << m_parameters.finalFanout << " buffers." << std::endl;
 		for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i) {
 			tpie_delete(m_emptyReadBuffers.front());
 			m_emptyReadBuffers.pop();
@@ -897,13 +888,9 @@ public:
 	}
 
 	void fetch_blocks(memory_size_type i) {
-		//log_debug() << std::endl << "> Fetching block" << std::endl;
-		// log_debug()() << "Fetching " << i << std::endl;
 		tournament_leaf	& leaf = m_leaves[i];
 		if(leaf.last_block) {
-			// log_debug()() << "Last block" << std::endl;
 			if(leaf.block_pointer != NULL) {
-				// log_debug()() << "Not null" << std::endl;
 				{
 					boost::mutex::scoped_lock lock(m_mutex);
 					m_emptyReadBuffers.push(leaf.block_pointer);
@@ -912,7 +899,6 @@ public:
 				}
 
 				leaf.block_pointer = NULL;
-				// log_debug()() << m_largestElement << std::endl;
 				leaf.end = leaf.begin = &m_largestElement;
 				++leaf.end;
 			}
@@ -920,13 +906,8 @@ public:
 			return;
 		}
 
-		//log_debug() << "|> Entering loop" << std::endl;
 		boost::mutex::scoped_lock lock(m_mutex);
 		while(true) {
-			//log_debug() << "|| Begin iteration" << std::endl;
-			//log_debug() << "|| Popping from read buffers" << std::endl;
-			// log_debug()() << "Fetching block from file " << b->file << std::endl;
-			// log_debug()() << "\tSmallest element " << b->m_data->front() << std::endl;
 			while(m_fullReadBuffers.empty()) {
 				m_condition.wait(lock);
 			}
@@ -945,17 +926,12 @@ public:
 			}
 			leaf.block_pointer = b;
 
-			//log_debug() << "|| File is " << b->file << ". i is " << i << std::endl;
 			if(b->file == i)
 				break;
 		}
-		//log_debug() << "|x Exiting loop" << std::endl;
-
-		//log_debug() << "x Done fetching block" << std::endl;
 	}
 
 	T pull() {
-		//log_debug() << std::endl << "> Begin pull" << std::endl;
 		if(m_reporting_mode == REPORTING_MODE_INTERNAL) {
 			return (*m_currentRun)[m_itemsPushed-(m_itemsLeft--)];
 		}
@@ -964,7 +940,6 @@ public:
 		tournament_leaf & leaf = m_leaves[index];
 
 		T res = leaf.smallest_element;
-		//// log_debug()() << "Pulling " << res << " from file " << index << std::endl;
 
 		if(leaf.begin == leaf.end) {
 			fetch_blocks(index);
@@ -974,10 +949,6 @@ public:
 		++leaf.begin;
 		m_tournamentTree.update_key(index);
 		--m_itemsLeft;
-
-		//log_debug() << "x End pull" << std::endl;
-
-		//log_debug() << "Pulled " << res << " from " << index << std::endl;
 
 		return res;
 	}
