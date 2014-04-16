@@ -465,7 +465,17 @@ public:
 		bits::tournament_tree<typename tpie::array<T>::iterator, pred_t> tree(runs.begin(), runs.end(), m_pred);
 
 		while(m > 0) {
-			block * b = m_emptyReadBuffers.pop();
+			block * b;
+			{
+				boost::mutex::scoped_lock lock(m_mutex);
+				while(m_emptyReadBuffers.empty()) {
+					m_condition.wait(lock);
+				}
+
+				b = m_emptyReadBuffers.front();
+				m_emptyReadBuffers.pop();
+			}
+
 			memory_size_type run = tree.top();
 			memory_size_type size = std::min(get_block_size() / sizeof(T), m_runFileSizes[run]);
 
@@ -499,8 +509,12 @@ public:
 			tree.update_key(run);
 			b->file = run;
 			//log_debug() << "Pushing middle read buffer" << std::endl;
+
+			boost::mutex::scoped_lock lock(m_mutex);
 			m_fullReadBuffers.push(b);
 			//log_debug() << "Pushed middle read buffer" << std::endl;
+			lock.unlock(); // avoid problems if a waiting thread immediately wakes up
+			m_condition.notify_one();
 		}
 	}
 
@@ -597,7 +611,10 @@ public:
 		tp_assert(m_emptyBuffers.empty(), "A wild write buffer has appeared.");
 
 		if(m_itemsPushed == 0) {
+			boost::mutex::scoped_lock lock(m_mutex);
 			m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
+			lock.unlock(); // avoid problems if a waiting thread immediately wakes up
+			m_condition.notify_one();
 			m_IOThread.join();
 		}
 	}
@@ -835,8 +852,13 @@ public:
 
 		// initialize IO
 		// log_debug()() << "Creating " << m_parameters.finalFanout << " buffers." << std::endl;
-		for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i)
-			m_emptyReadBuffers.push(tpie_new<block>(block::mode::data));
+		{
+			boost::mutex::scoped_lock lock(m_mutex);
+			for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i)
+				m_emptyReadBuffers.push(tpie_new<block>(block::mode::data));
+			lock.unlock(); // avoid problems if a waiting thread immediately wakes up
+			m_condition.notify_one();
+		}
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -844,17 +866,21 @@ public:
 	///////////////////////////////////////////////////////////////////////////////
 	void pull_end() {
 		// log_debug()() << "Pull end called" << std::endl;
+		{
+			boost::mutex::scoped_lock lock(m_mutex);
+			m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
+			lock.unlock(); // avoid problems if a waiting thread immediately wakes up
+			m_condition.notify_one();
+		}
+
+		m_IOThread.join();
+
 		if(m_reporting_mode == REPORTING_MODE_INTERNAL)  {
 			tpie_delete(m_currentRun);
-
-			m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
-			m_IOThread.join();
 			return;
 		}
 
-		m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
-		m_IOThread.join();
-
+		// it is no longer neccesary to acquire the lock, since the IO thread has been stopped
 		for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i) {
 			if(m_leaves[i].block_pointer != NULL) {
 				m_emptyReadBuffers.push(m_leaves[i].block_pointer);
@@ -863,12 +889,11 @@ public:
 
 		// log_debug()() << "Deleting " << m_parameters.finalFanout << " buffers." << std::endl;
 		for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i) {
-			tpie_delete(m_emptyReadBuffers.pop());
+			tpie_delete(m_emptyReadBuffers.front());
+			m_emptyReadBuffers.pop();
 		}
 
-		while(!m_runFiles.empty()) {
-			m_runFiles.pop_front();
-		}
+		m_runFiles.clear();
 	}
 
 	void fetch_blocks(memory_size_type i) {
@@ -879,8 +904,12 @@ public:
 			// log_debug()() << "Last block" << std::endl;
 			if(leaf.block_pointer != NULL) {
 				// log_debug()() << "Not null" << std::endl;
-				//tp_assert(leaf.block_pointer != NULL, "Block pointer is null.");
-				m_emptyReadBuffers.push(leaf.block_pointer);
+				{
+					boost::mutex::scoped_lock lock(m_mutex);
+					m_emptyReadBuffers.push(leaf.block_pointer);
+					lock.unlock(); // avoid problems if a waiting thread immediately wakes up
+					m_condition.notify_one();
+				}
 
 				leaf.block_pointer = NULL;
 				// log_debug()() << m_largestElement << std::endl;
@@ -892,12 +921,16 @@ public:
 		}
 
 		//log_debug() << "|> Entering loop" << std::endl;
+		boost::mutex::scoped_lock lock(m_mutex);
 		while(true) {
 			//log_debug() << "|| Begin iteration" << std::endl;
-			block * b = m_fullReadBuffers.pop();
 			//log_debug() << "|| Popping from read buffers" << std::endl;
 			// log_debug()() << "Fetching block from file " << b->file << std::endl;
 			// log_debug()() << "\tSmallest element " << b->m_data->front() << std::endl;
+			while(m_fullReadBuffers.empty()) {
+				m_condition.wait(lock);
+			}
+			block * b = m_fullReadBuffers.front(); m_fullReadBuffers.pop();
 			tournament_leaf & leaf = m_leaves[b->file];
 			tp_assert(leaf.begin == leaf.end, "Not empty");
 			tp_assert(b != NULL, "the block is null");
@@ -908,6 +941,7 @@ public:
 			leaf.end = &((*b->m_data)[0]) + b->m_data->size();
 			if(leaf.block_pointer != NULL) {
 				m_emptyReadBuffers.push(leaf.block_pointer);
+				m_condition.notify_one();
 			}
 			leaf.block_pointer = b;
 
@@ -1033,10 +1067,12 @@ private:
 
 	// phase 2 + 3 specific
 	std::deque<T> m_smallestElements;
-	bits::blocking_queue<block*> m_emptyWriteBuffers;
-	bits::blocking_queue<block*> m_emptyReadBuffers;
-	bits::blocking_queue<block*> m_fullWriteBuffers;
-	bits::blocking_queue<block*> m_fullReadBuffers;
+	std::queue<block*> m_emptyWriteBuffers;
+	std::queue<block*> m_emptyReadBuffers;
+	std::queue<block*> m_fullWriteBuffers;
+	std::queue<block*> m_fullReadBuffers;
+	mutable boost::mutex m_mutex;
+	mutable boost::condition_variable m_condition;
 
 	leaves m_leaves;
 	bits::tournament_tree<typename leaves::iterator, tourn_pred> m_tournamentTree;
