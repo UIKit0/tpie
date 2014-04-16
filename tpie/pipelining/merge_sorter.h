@@ -223,7 +223,6 @@ public:
 	, m_itemsLeft(0)
 	, m_itemsPushed(0)
 	, m_largestElementSet(false)
-	, m_queuedWriteJobs(0)
 		, m_tournamentTree(tourn_pred(m_pred)) // set the size to 0 for now
 	{
 		m_parameters.memoryPhase1 = 0;
@@ -599,7 +598,6 @@ public:
 
 		if(m_itemsPushed == 0) {
 			m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
-			++m_queuedWriteJobs;
 			m_IOThread.join();
 		}
 	}
@@ -650,7 +648,6 @@ private:
 				write_buffer->m_data->push_back(top.first);
 				if(write_buffer->m_data->size() == get_block_size()/sizeof(T)) { // replace the full write buffer
 					m_fullWriteBuffers.push(write_buffer);
-					++m_queuedWriteJobs;
 					write_buffer = m_emptyWriteBuffers.pop();
 				}
 
@@ -669,14 +666,12 @@ private:
 
 		if(!write_buffer->m_data->empty()) {
 			m_fullWriteBuffers.push(write_buffer);
-			++m_queuedWriteJobs;
 		}
 		else {
 			m_emptyWriteBuffers.push(write_buffer);
 		}
 
 		m_fullWriteBuffers.push(tpie_new<block>(block::mode::run_signal));
-		++m_queuedWriteJobs;
 
 		while(m_queuedWriteJobs > 0)
 			boost::this_thread::yield();
@@ -853,7 +848,6 @@ public:
 			tpie_delete(m_currentRun);
 
 			m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
-			++m_queuedWriteJobs;
 			m_IOThread.join();
 			return;
 		}
@@ -1025,6 +1019,7 @@ private:
 	run_container_type * m_currentRun;
 	T m_largestElement;
 	bool m_largestElementSet;
+	boost::thread m_IOThread; // The thread in phase 1 used to write run formations to file
 
 	// as far as i can see these do not need to be locked with a mutex
 	std::deque<temp_file> m_runFiles;
@@ -1035,7 +1030,6 @@ private:
 	bits::blocking_queue<run_container_type *> m_fullBuffers; // the buffers that are to be consumed by the sorting thread
 	bits::blocking_queue<run_container_type *> m_sortedBuffers; // the buffers that are to be consumed by the write thread
 	boost::thread m_sortThread; // The thread in phase 1 used to sort run formations
-	boost::thread m_IOThread; // The thread in phase 1 used to write run formations to file
 
 	// phase 2 + 3 specific
 	std::deque<T> m_smallestElements;
@@ -1043,7 +1037,6 @@ private:
 	bits::blocking_queue<block*> m_emptyReadBuffers;
 	bits::blocking_queue<block*> m_fullWriteBuffers;
 	bits::blocking_queue<block*> m_fullReadBuffers;
-	boost::atomic<memory_size_type> m_queuedWriteJobs;
 
 	leaves m_leaves;
 	bits::tournament_tree<typename leaves::iterator, tourn_pred> m_tournamentTree;
