@@ -467,6 +467,7 @@ public:
 
 private:
 	void push_run() {
+		m_itemsPushed += m_currentRun->size();
 		m_fullBuffers.push(m_currentRun);
 		m_currentRun = m_emptyBuffers.pop();
 		++m_runsPushed;
@@ -484,7 +485,6 @@ public:
 		if(m_currentRun->size() == m_desiredSize) push_run(); // push the run to the sort thread and fetch a new empty buffer
 
 		m_currentRun->push_back(item);
-		++m_itemsPushed;
 	}
 
 	///////////////////////////////////////////////////////////////////////////
@@ -493,6 +493,7 @@ public:
 	void end() {
 		// Set to internal reporting mode if possible
 
+		m_itemsPushed += m_currentRun->size();
 		m_itemsLeft = m_itemsPushed;
 
 		if(m_runsPushed == 0 && m_itemsPushed <= m_parameters.internalReportThreshold) {
