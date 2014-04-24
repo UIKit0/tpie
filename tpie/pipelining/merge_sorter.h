@@ -34,6 +34,20 @@
 
 namespace tpie {
 
+class scoped_unlock {
+public:
+	scoped_unlock(boost::mutex::scoped_lock & l) : m_l(l) {
+		m_l.unlock();
+	}
+
+	~scoped_unlock() {
+		m_l.lock();
+	}
+
+private:
+	boost::mutex::scoped_lock & m_l;
+};
+
 ///////////////////////////////////////////////////////////////////////////////
 /// Merge sorting consists of three phases.
 ///
@@ -160,7 +174,7 @@ public:
 	, m_itemsLeft(0)
 	, m_itemsPushed(0)
 	, m_largestElementSet(false)
-		, m_tournamentTree(tourn_pred(m_pred)) // set the size to 0 for now
+	, m_tournamentTree(tourn_pred(m_pred)) // set the size to 0 for now
 	{
 		m_parameters.memoryPhase1 = 0;
 		m_parameters.memoryPhase2 = 0;
@@ -401,10 +415,12 @@ public:
 
 		bits::tournament_tree<typename tpie::array<T>::iterator, pred_t> tree(runs.begin(), runs.end(), m_pred);
 
+		boost::mutex::scoped_lock lock(m_mutex);
+
 		while(m > 0) {
 			block * b;
 			{
-				boost::mutex::scoped_lock lock(m_mutex);
+
 				while(m_emptyReadBuffers.empty()) {
 					m_condition.wait(lock);
 				}
@@ -413,42 +429,44 @@ public:
 				m_emptyReadBuffers.pop();
 			}
 
-			memory_size_type run = tree.top();
-			memory_size_type size = std::min(get_block_size() / sizeof(T), m_runFileSizes[run]);
+			{
+				scoped_unlock unlock(lock);
 
-			if(size < get_block_size() / sizeof(T)) {
-				// this is the last block of the run. The last element therefore need to be included
-				b->m_data->resize(size+1);
-				b->m_data->front() = runs[run];
-				in[run].read_i((void*) ((&b->m_data->front())+1), size * sizeof(T));
+				memory_size_type run = tree.top();
+				memory_size_type size = std::min(get_block_size() / sizeof(T), m_runFileSizes[run]);
 
-				runs[run] = m_largestElement;
+				if(size < get_block_size() / sizeof(T)) {
+					// this is the last block of the run. The last element therefore need to be included
+					b->m_data->resize(size+1);
+					b->m_data->front() = runs[run];
+					in[run].read_i((void*) ((&b->m_data->front())+1), size * sizeof(T));
 
-				m_runFileSizes[run] -= size;
-				m -= size;
+					runs[run] = m_largestElement;
 
-				b->last_block = true;
+					m_runFileSizes[run] -= size;
+					m -= size;
+
+					b->last_block = true;
+				}
+				else {
+					b->m_data->resize(size); // the extra element is only used temporarily in this thread
+					b->m_data->front() = runs[run]; // the smallest element
+					in[run].read_i((void*) ((&b->m_data->front())+1), (size-1) * sizeof(T));
+
+					runs[run] = b->m_data->back();
+					b->m_data->pop_back();
+
+					m_runFileSizes[run] -= size-1;
+					m -= size-1;
+
+					b->last_block = false;
+				}
+
+				tree.update_key(run);
+				b->file = run;
 			}
-			else {
-				b->m_data->resize(size); // the extra element is only used temporarily in this thread
-				b->m_data->front() = runs[run]; // the smallest element
-				in[run].read_i((void*) ((&b->m_data->front())+1), (size-1) * sizeof(T));
 
-				runs[run] = b->m_data->back();
-				b->m_data->pop_back();
-
-				m_runFileSizes[run] -= size-1;
-				m -= size-1;
-
-				b->last_block = false;
-			}
-
-			tree.update_key(run);
-			b->file = run;
-
-			boost::mutex::scoped_lock lock(m_mutex);
 			m_fullReadBuffers.push(b);
-			lock.unlock(); // avoid problems if a waiting thread immediately wakes up
 			m_condition.notify_one();
 		}
 	}
@@ -549,7 +567,6 @@ public:
 		if(m_itemsPushed == 0) {
 			boost::mutex::scoped_lock lock(m_mutex);
 			m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
-			lock.unlock(); // avoid problems if a waiting thread immediately wakes up
 			m_condition.notify_one();
 			m_IOThread.join();
 		}
@@ -787,7 +804,6 @@ public:
 			boost::mutex::scoped_lock lock(m_mutex);
 			for(memory_size_type i = 0; i < m_parameters.finalFanout; ++i)
 				m_emptyReadBuffers.push(tpie_new<block>(block::mode::data));
-			lock.unlock(); // avoid problems if a waiting thread immediately wakes up
 			m_condition.notify_one();
 		}
 	}
@@ -799,7 +815,6 @@ public:
 		{
 			boost::mutex::scoped_lock lock(m_mutex);
 			m_fullWriteBuffers.push(tpie_new<block>(block::mode::terminate_signal)); // push a run to signal thread termination
-			lock.unlock(); // avoid problems if a waiting thread immediately wakes up
 			m_condition.notify_one();
 		}
 
@@ -827,45 +842,43 @@ public:
 
 	void fetch_blocks(memory_size_type i) {
 		tournament_leaf	& leaf = m_leaves[i];
+
+		boost::mutex::scoped_lock lock(m_mutex);
+
 		if(leaf.last_block) {
 			if(leaf.block_pointer != NULL) {
-				{
-					boost::mutex::scoped_lock lock(m_mutex);
-					m_emptyReadBuffers.push(leaf.block_pointer);
-					lock.unlock(); // avoid problems if a waiting thread immediately wakes up
-					m_condition.notify_one();
-				}
+				m_emptyReadBuffers.push(leaf.block_pointer);
+				m_condition.notify_one();
 
 				leaf.block_pointer = NULL;
 				leaf.end = leaf.begin = &m_largestElement;
 				++leaf.end;
 			}
-
-			return;
 		}
+		else {
+			while(true) {
+				while(m_fullReadBuffers.empty()) {
+					m_condition.wait(lock);
+				}
 
-		boost::mutex::scoped_lock lock(m_mutex);
-		while(true) {
-			while(m_fullReadBuffers.empty()) {
-				m_condition.wait(lock);
-			}
-			block * b = m_fullReadBuffers.front(); m_fullReadBuffers.pop();
-			tournament_leaf & leaf = m_leaves[b->file];
-			tp_assert(leaf.begin == leaf.end, "Not empty");
-			tp_assert(b != NULL, "the block is null");
-			tp_assert(b->m_data != NULL, "the data is null");
-			tp_assert(!b->m_data->empty(), "block is empty");
-			leaf.begin = &((*b->m_data)[0]);
-			leaf.last_block = b->last_block;
-			leaf.end = &((*b->m_data)[0]) + b->m_data->size();
-			if(leaf.block_pointer != NULL) {
-				m_emptyReadBuffers.push(leaf.block_pointer);
-				m_condition.notify_one();
-			}
-			leaf.block_pointer = b;
+				block * b = m_fullReadBuffers.front(); m_fullReadBuffers.pop();
+				tournament_leaf & leaf = m_leaves[b->file];
+				tp_assert(leaf.begin == leaf.end, "Not empty");
+				tp_assert(b != NULL, "the block is null");
+				tp_assert(b->m_data != NULL, "the data is null");
+				tp_assert(!b->m_data->empty(), "block is empty");
+				leaf.begin = &((*b->m_data)[0]);
+				leaf.last_block = b->last_block;
+				leaf.end = &((*b->m_data)[0]) + b->m_data->size();
+				if(leaf.block_pointer != NULL) {
+					m_emptyReadBuffers.push(leaf.block_pointer);
+					m_condition.notify_one();
+				}
+				leaf.block_pointer = b;
 
-			if(b->file == i)
-				break;
+				if(b->file == i)
+					break;
+			}
 		}
 	}
 
