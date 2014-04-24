@@ -66,7 +66,6 @@ public:
         boost::mutex::scoped_lock lock(m_mutex);
         m_queue.push(item);
 
-        lock.unlock(); // avoid problems if a waiting thread immediately wakes up
         m_condition.notify_one();
     }
 
