@@ -30,7 +30,7 @@
 #include <tpie/internal_vector.h>
 #include <tpie/tournament_tree.h>
 #include <deque>
-#include <boost/atomic.hpp>
+#include <boost/thread.hpp>
 
 namespace tpie {
 
