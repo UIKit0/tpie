@@ -410,16 +410,16 @@ private:
 		for (memory_size_type i = 0; i < m_treeHeight; ++i) {
 			b_tree_block<Traits> b(buf, m_params);
 
-			memory_size_type i;
-			for (i = 0; i != b.keys(); ++i)
-				if (m_comp(k, b.key(i))) break;
+			memory_size_type j;
+			for (j = 0; j != b.keys(); ++j)
+				if (m_comp(k, b.key(j))) break;
 
-			res.follow(buf.get_handle(), i);
+			res.follow(buf.get_handle(), j);
 
-			if (b.child(i) == block_handle(0))
+			if (b.child(j) == block_handle(0))
 				throw exception("Child pointer is 0 in non-leaf");
 			else
-				m_blocks.read_block(b.child(i), buf);
+				m_blocks.read_block(b.child(j), buf);
 		}
 
 		return res;
