@@ -195,7 +195,7 @@ public:
 	void close() {
 		if (m_open) {
 			write_allocation_bitmap();
-			m_accessor.close();
+			m_accessor.close_i();
 			m_open = false;
 			m_freeSpace.resize(0);
 		}
@@ -204,19 +204,13 @@ public:
 	void open(std::string fileName, bool writable) {
 		close();
 
-		m_accessor.open(fileName,
-						true,
-						writable,
-						1,
-						block_size(),
-						max_user_data_size(),
-						access_random);
+		m_accessor.open_wo(fileName);
 
 		m_write = writable;
 
 		m_freeSpace.resize(block_size());
 
-		if (m_accessor.size() == 0)
+		if (m_accessor.file_size_i() == 0)
 			initial_allocation_bitmap();
 		else
 			read_allocation_bitmap();
@@ -267,11 +261,17 @@ public:
 	void read_block(block_handle id, block_buffer & buf) {
 		buf.set_handle(id);
 		buf.resize(block_size());
-		m_accessor.read_block(buf.get(), id, block_size());
+
+		stream_size_type offset = id * block_size();
+		if(offset + block_size() <= m_accessor.file_size_i()) {
+			m_accessor.seek_i(offset);
+			m_accessor.read_i((void*) buf.get(), block_size());
+		}
 	}
 
 	void write_block(block_buffer & buf) {
-		m_accessor.write_block(buf.get(), buf.get_handle(), block_size());
+		m_accessor.seek_i(buf.get_handle() * block_size());
+		m_accessor.write_i((void*) buf.get(), block_size());
 	}
 
 private:
@@ -283,7 +283,7 @@ private:
 		return m_blockSize;
 	}
 
-	tpie::file_accessor::file_accessor m_accessor;
+	tpie::file_accessor::raw_file_accessor m_accessor;
 
 	bool m_open;
 	bool m_write;
