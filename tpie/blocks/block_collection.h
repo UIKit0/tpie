@@ -31,7 +31,6 @@ namespace blocks {
 ///////////////////////////////////////////////////////////////////////////////
 /// \brief  Pointer to a block in a block collection on disk.
 ///
-/// Essentially a strong typedef of a stream_size_type.
 /// Block allocation is administered by the block collection framework, so it
 /// does not make sense to perform integer arithmetic on the block handles.
 ///
