@@ -1,6 +1,6 @@
 // -*- mode: c++; tab-width: 4; indent-tabs-mode: t; c-file-style: "stroustrup"; -*-
 // vi:set ts=4 sts=4 sw=4 noet cino+=(0 :
-// Copyright 2013 The TPIE development team
+// Copyright 2013, 2014, The TPIE development team
 // 
 // This file is part of TPIE.
 // 
@@ -23,9 +23,8 @@
 #include <tpie/pipelining/b_tree.h>
 
 typedef size_t key_type;
-typedef tpie::blocks::b_tree_traits<key_type> traits_type;
-typedef tpie::blocks::b_tree<traits_type> tree_type;
-typedef tpie::blocks::b_tree_builder<traits_type> builder_type;
+typedef tpie::blocks::b_tree<key_type> tree_type;
+typedef tpie::blocks::b_tree_builder<key_type> builder_type;
 
 bool b_tree_test() {
 	bool result = true;

@@ -1,6 +1,6 @@
 // -*- mode: c++; tab-width: 4; indent-tabs-mode: t; c-file-style: "stroustrup"; -*-
 // vi:set ts=4 sts=4 sw=4 noet :
-// Copyright 2013, The TPIE development team
+// Copyright 2013, 2014, The TPIE development team
 //
 // This file is part of TPIE.
 //
@@ -41,12 +41,8 @@ namespace blocks {
 /// and can be modified through the methods
 /// push_block() and pop_front().
 ///////////////////////////////////////////////////////////////////////////////
-template <typename Traits>
+template <typename Key, typename Value, typename Compare, typename KeyExtract>
 class b_tree_block_overview {
-	typedef typename Traits::Key Key;
-	typedef typename Traits::Value Value;
-	typedef typename Traits::Compare Compare;
-
 	// We could use a std::pair, but `handle` and `key` are better than
 	// `first` and `second`.
 	struct handle_key_pair {
@@ -129,19 +125,16 @@ private:
 ///
 /// In the end, all the remaining B trees are merged into the resulting B tree.
 ///////////////////////////////////////////////////////////////////////////////
-template <typename Traits>
+template <typename Key, typename Value, typename Compare, typename KeyExtract>
 class b_tree_builder {
-	typedef typename Traits::Key Key;
-	typedef typename Traits::Value Value;
-	typedef typename Traits::Compare Compare;
-
 public:
-	b_tree_builder(b_tree<Traits> & res)
+	b_tree_builder(b_tree<Key, Value, Compare, KeyExtract> & res)
 		: m_state(builder_state::EMPTY)
 		, m_tree(res)
 		, m_blocks(m_tree.m_blocks)
 		, m_params(m_tree.m_params)
 		, m_layers(m_params)
+		, m_key_extract()
 	{
 		m_blocks.get_free_block(m_leafBuffer);
 	}
@@ -151,7 +144,7 @@ public:
 		m_state = builder_state::BUILDING;
 
 		{
-			b_tree_leaf<Traits> leaf(m_leafBuffer, m_params);
+			b_tree_leaf<Key, Value, Compare, KeyExtract> leaf(m_leafBuffer, m_params);
 			if (leaf.full()) {
 				push_leaf();
 				new_leaf();
@@ -159,9 +152,9 @@ public:
 		}
 
 		{
-			b_tree_leaf<Traits> leaf(m_leafBuffer, m_params);
+			b_tree_leaf<Key, Value, Compare, KeyExtract> leaf(m_leafBuffer, m_params);
 			if (leaf.empty()) {
-				m_leafKey = Traits::key_of_value(v);
+				m_leafKey = m_key_extract(v);
 			}
 			leaf.insert(v);
 		}
@@ -179,7 +172,7 @@ public:
 		}
 
 		{
-			b_tree_leaf<Traits> leaf(m_leafBuffer, m_params);
+			b_tree_leaf<Key, Value, Compare, KeyExtract> leaf(m_leafBuffer, m_params);
 			if (!leaf.empty())
 				push_leaf();
 		}
@@ -212,7 +205,7 @@ private:
 
 	void new_leaf() {
 		m_blocks.get_free_block(m_leafBuffer);
-		b_tree_leaf<Traits> leaf(m_leafBuffer, m_params);
+		b_tree_leaf<Key, Value, Compare, KeyExtract> leaf(m_leafBuffer, m_params);
 		leaf.clear();
 	}
 
@@ -251,7 +244,7 @@ private:
 
 		block_buffer & buf = m_blockBuffer;
 		m_blocks.get_free_block(buf);
-		b_tree_block<Traits> block(buf, m_params);
+		b_tree_block<Key, Value, Compare, KeyExtract> block(buf, m_params);
 		block.clear();
 		m_layers.push_block(level, m_layers.front_key(level-1), buf.get_handle());
 		for (memory_size_type i = 0; i < children; ++i) {
@@ -270,7 +263,7 @@ private:
 	builder_state::type m_state;
 
 	/** Destination tree to build. */
-	b_tree<Traits> & m_tree;
+	b_tree<Key, Value, Compare, KeyExtract> & m_tree;
 
 	/** The block collection underlying the tree to build. */
 	block_collection & m_blocks;
@@ -288,7 +281,9 @@ private:
 	block_buffer m_blockBuffer;
 
 	/** B tree fragments that will make up the final B tree. */
-	b_tree_block_overview<Traits> m_layers;
+	b_tree_block_overview<Key, Value, Compare, KeyExtract> m_layers;
+
+	KeyExtract m_key_extract;
 };
 
 } // namespace blocks

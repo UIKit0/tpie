@@ -1,6 +1,6 @@
 // -*- mode: c++; tab-width: 4; indent-tabs-mode: t; eval: (progn (c-set-style "stroustrup") (c-set-offset 'innamespace 0)); -*-
 // vi:set ts=4 sts=4 sw=4 noet :
-// Copyright 2013, The TPIE development team
+// Copyright 2013, 2014, The TPIE development team
 // 
 // This file is part of TPIE.
 // 
@@ -32,12 +32,12 @@ namespace pipelining {
 
 namespace bits {
 
-template <typename Traits>
+template <typename Key, typename Value=Key, typename Compare=std::less<Key>, typename KeyExtract=blocks::identity_key_extract<Value>() >
 class b_tree_builder_t : public node {
 public:
-	typedef typename Traits::Value item_type;
+	typedef Value item_type;
 
-	b_tree_builder_t(blocks::b_tree_builder<Traits> & builder)
+	b_tree_builder_t(blocks::b_tree_builder<Key, Value, Compare, KeyExtract> & builder)
 		: m_builder(builder)
 	{
 		set_name("B-tree builder", PRIORITY_INSIGNIFICANT);
@@ -52,15 +52,15 @@ public:
 	}
 
 private:
-	blocks::b_tree_builder<Traits> & m_builder;
+	blocks::b_tree_builder<Key, Value, Compare, KeyExtract> & m_builder;
 };
 
 } // namespace bits
 
-template <typename Traits>
-pipe_end<termfactory_1<bits::b_tree_builder_t<Traits>, blocks::b_tree_builder<Traits> &> >
-b_tree_builder(blocks::b_tree_builder<Traits> & builder) {
-	return termfactory_1<bits::b_tree_builder_t<Traits>, blocks::b_tree_builder<Traits> &>(builder);
+template <typename Key, typename Value, typename Compare, typename KeyExtract>
+pipe_end<termfactory_1<bits::b_tree_builder_t<Key, Value, Compare, KeyExtract>, blocks::b_tree_builder<Key, Value, Compare, KeyExtract> &> >
+b_tree_builder(blocks::b_tree_builder<Key, Value, Compare, KeyExtract> & builder) {
+	return termfactory_1<bits::b_tree_builder_t<Key, Value, Compare, KeyExtract>, blocks::b_tree_builder<Key, Value, Compare, KeyExtract> &>(builder);
 }
 
 } // namespace pipelining

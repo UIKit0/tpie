@@ -1,6 +1,6 @@
 // -*- mode: c++; tab-width: 4; indent-tabs-mode: t; c-file-style: "stroustrup"; -*-
 // vi:set ts=4 sts=4 sw=4 noet :
-// Copyright 2013, The TPIE development team
+// Copyright 2013, 2014, The TPIE development team
 //
 // This file is part of TPIE.
 //
@@ -28,12 +28,8 @@ namespace tpie {
 
 namespace blocks {
 
-template <typename Traits>
+template <typename Key, typename Value, typename Compare, typename KeyExtract>
 class b_tree_leaf {
-	typedef typename Traits::Key Key;
-	typedef typename Traits::Value Value;
-	typedef typename Traits::Compare Compare;
-
 public:
 	static memory_size_type calculate_fanout(memory_size_type blockSize) {
 		blockSize -= sizeof(b_tree_header);
@@ -42,6 +38,7 @@ public:
 
 	b_tree_leaf(block_buffer & buffer, const b_tree_parameters & params)
 		: m_params(params)
+		, m_key_extract()
 	{
 		m_header = reinterpret_cast<b_tree_header *>(buffer.get());
 		m_values = reinterpret_cast<Value *>(buffer.get() + sizeof(b_tree_header));
@@ -62,7 +59,7 @@ public:
 	memory_size_type index_of(const Key & key, Compare comp) const {
 		memory_size_type i = 0;
 		while (i != degree()) {
-			Key k = Traits::key_of_value(m_values[i]);
+			Key k = m_key_extract(m_values[i]);
 			if (!comp(k, key) && !comp(key, k)) break;
 			++i;
 		}
@@ -106,10 +103,10 @@ public:
 	Key split_insert(Value v, block_buffer & rightBuf, const Compare & comp) {
 		if (m_header->degree != m_params.leafMax) throw exception("Split insert in non-full leaf");
 
-		b_tree_leaf<Traits> rightLeaf(rightBuf, m_params);
+		b_tree_leaf<Key, Value, Compare, KeyExtract> rightLeaf(rightBuf, m_params);
 
 		Value * endPoint = m_values + m_params.leafMax;
-		Value * insertionPoint = std::partition(m_values, endPoint, key_less_than<Traits>(comp, v));
+		Value * insertionPoint = std::partition(m_values, endPoint, key_less_than<Key, Value, Compare, KeyExtract>(comp, v));
 		Value * splitPoint = m_values + m_params.leafMax/2;
 
 		// All values in [m_values, insertionPoint) are less than v,
@@ -117,7 +114,7 @@ public:
 
 		if (insertionPoint < splitPoint) {
 			// We must insert v into left leaf.
-			std::nth_element(insertionPoint, splitPoint, endPoint, key_less<Traits>(comp));
+			std::nth_element(insertionPoint, splitPoint, endPoint, key_less<Key, Value, Compare, KeyExtract>(comp));
 			// All values in [m_values, insertionPoint) are less than
 			// all values in [insertionPoint, splitPoint) which are less than
 			// all values in [splitPoint, endPoint).
@@ -129,7 +126,7 @@ public:
 			*splitPoint = v;
 		} else if (insertionPoint > splitPoint) {
 			// We must insert v into right leaf.
-			std::nth_element(m_values, splitPoint, insertionPoint, key_less<Traits>(comp));
+			std::nth_element(m_values, splitPoint, insertionPoint, key_less<Key, Value, Compare, KeyExtract>(comp));
 			// All values in [m_values, splitPoint) are less than
 			// all values in [splitPoint, insertionPoint) which are less than
 			// all values in [insertionPoint, endPoint).
@@ -153,11 +150,11 @@ public:
 
 		// At this point, verify that all values in the left leaf
 		// are less than all values in the right leaf.
-		Value * rightMin = std::min_element(rightLeaf.m_values, rightLeaf.m_values + rightLeaf.degree(), key_less<Traits>(comp));
-		Key rightMinKey = Traits::key_of_value(*rightMin);
+		Value * rightMin = std::min_element(rightLeaf.m_values, rightLeaf.m_values + rightLeaf.degree(), key_less<Key, Value, Compare, KeyExtract>(comp));
+		Key rightMinKey = m_key_extract(*rightMin);
 #ifndef TPIE_NDEBUG
-		Value * leftMax = std::max_element(m_values, m_values + degree(), key_less<Traits>(comp));
-		Key leftMaxKey = Traits::key_of_value(*leftMax);
+		Value * leftMax = std::max_element(m_values, m_values + degree(), key_less<Key, Value, Compare, KeyExtract>(comp));
+		Key leftMaxKey = m_key_extract(*leftMax);
 		if (comp(rightMinKey, leftMaxKey)) {
 			throw exception("split_insert failed to maintain order invariant");
 		}
@@ -204,7 +201,7 @@ public:
 			std::nth_element(values.get(),
 							 midPoint,
 							 values.get() + values.size(),
-							 key_less<Traits>(comp));
+							 key_less<Key, Value, Compare, KeyExtract>(comp));
 
 			std::copy(values.get(),
 					  midPoint,
@@ -216,7 +213,7 @@ public:
 					  right.m_values);
 			right.m_header->degree = (values.get() + values.size()) - midPoint;
 
-			midKey = Traits::key_of_value(*midPoint);
+			midKey = m_key_extract(*midPoint);
 			return fuse_share;
 		}
 	}
@@ -225,6 +222,7 @@ private:
 	b_tree_header * m_header;
 	Value * m_values;
 	b_tree_parameters m_params;
+	KeyExtract m_key_extract;
 };
 
 } // namespace blocks

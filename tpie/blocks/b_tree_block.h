@@ -1,6 +1,6 @@
 // -*- mode: c++; tab-width: 4; indent-tabs-mode: t; c-file-style: "stroustrup"; -*-
 // vi:set ts=4 sts=4 sw=4 noet :
-// Copyright 2013, The TPIE development team
+// Copyright 2013, 2014, The TPIE development team
 //
 // This file is part of TPIE.
 //
@@ -31,10 +31,8 @@ namespace tpie {
 
 namespace blocks {
 
-template <typename Traits>
+template <typename Key, typename Value, typename Compare,typename KeyExtract>
 class b_tree_block {
-	typedef typename Traits::Key Key;
-	typedef typename Traits::Compare Compare;
 public:
 	static memory_size_type calculate_fanout(memory_size_type blockSize) {
 		blockSize -= sizeof(b_tree_header);
@@ -45,6 +43,7 @@ public:
 
 	b_tree_block(block_buffer & buffer, const b_tree_parameters & params)
 		: m_params(params)
+		, m_key_extract()
 	{
 		char * children = buffer.get() + sizeof(b_tree_header);
 		char * keys = children + params.nodeMax * sizeof(block_handle);
@@ -171,8 +170,8 @@ public:
 		Key midKey;
 
 		{
-			b_tree_block<Traits> left(leftBuf, m_params);
-			b_tree_block<Traits> right(rightBuf, m_params);
+			b_tree_block<Key, Value, Compare, KeyExtract> left(leftBuf, m_params);
+			b_tree_block<Key, Value, Compare, KeyExtract> right(rightBuf, m_params);
 
 			memory_size_type in = 0;
 			memory_size_type out;
@@ -207,8 +206,8 @@ public:
 							block_buffer & rightBuf,
 							const Compare & comp)
 	{
-		b_tree_leaf<Traits> left(leftBuf, m_params);
-		b_tree_leaf<Traits> right(rightBuf, m_params);
+		b_tree_leaf<Key, Value, Compare, KeyExtract> left(leftBuf, m_params);
+		b_tree_leaf<Key, Value, Compare, KeyExtract> right(rightBuf, m_params);
 		Key k;
 		switch (left.fuse_with(right, k, comp)) {
 			case fuse_merge:
@@ -234,8 +233,8 @@ public:
 					 block_buffer & leftBuf,
 					 block_buffer & rightBuf)
 	{
-		b_tree_block<Traits> left(leftBuf, m_params);
-		b_tree_block<Traits> right(rightBuf, m_params);
+		b_tree_block<Key, Value, Compare, KeyExtract> left(leftBuf, m_params);
+		b_tree_block<Key, Value, Compare, KeyExtract> right(rightBuf, m_params);
 
 		std::vector<Key> keys(left.keys() + 1 + right.keys());
 		std::vector<block_handle> children(left.degree() + right.degree());
@@ -310,6 +309,7 @@ private:
 	block_handle * m_children;
 	Key * m_keys;
 	b_tree_parameters m_params;
+	KeyExtract m_key_extract;
 };
 
 } // namespace blocks

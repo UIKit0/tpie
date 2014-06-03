@@ -1,6 +1,6 @@
 // -*- mode: c++; tab-width: 4; indent-tabs-mode: t; c-file-style: "stroustrup"; -*-
 // vi:set ts=4 sts=4 sw=4 noet :
-// Copyright 2013, The TPIE development team
+// Copyright 2013, 2014, The TPIE development team
 //
 // This file is part of TPIE.
 //
@@ -30,27 +30,11 @@ namespace tpie {
 
 namespace blocks {
 
-// Example of a traits class to pass as template parameter to the b_tree class.
-template <typename T>
-class b_tree_traits {
-public:
-	typedef T Key;
-
-	typedef T Value;
-
-	/* [Notation: If `R` is a Compare object, then `a R b` means `R(a, b)`.]
-	 *
-	 * Antisymmetry: If `<` is a Compare object, and `a` and `b` are Keys,
-	 * then `a` and `b` are considered equal if not a < b and not b < a.
-	 * We write (a == b) to mean (not a < b and not b < a).
-	 *
-	 * Transitivity: If `<` is a Compare object, and `a`, `b`, `c` are Keys,
-	 * then if a < b and b < c, then a < c.
-	 */
-	typedef std::less<Key> Compare;
-
-	/* It is assumed that v1 == v2 iff key_of_value(v1) == key_of_value(v2). */
-	static Key key_of_value(const Value & v) { return static_cast<Key>(v); }
+template<typename T>
+struct identity_key_extract {
+	T operator()(const T & t) const {
+		return t;
+	}
 };
 
 struct b_tree_header {
@@ -100,43 +84,40 @@ enum fuse_result {
 };
 
 // Functor for partitioning an array of Values according to a given Key.
-template <typename Traits>
+template <typename Key, typename Value, typename Compare, typename KeyExtract>
 class key_less_than {
-	typedef typename Traits::Key Key;
-	typedef typename Traits::Value Value;
-	typedef typename Traits::Compare Compare;
-
 	Compare comp;
+	KeyExtract key_extract;
 	Key key;
 
 public:
 	key_less_than(const Compare & comp, const Value & v)
 		: comp(comp)
-		, key(Traits::key_of_value(v))
+		, key_extract()
+		, key(key_extract(v))
 	{
 	}
 
 	bool operator()(const Value & v) const {
-		return comp(Traits::key_of_value(v), key);
+		return comp(key_extract(v), key);
 	}
 };
 
 // Comparator for sorting an array of Values by their Keys.
-template <typename Traits>
+template <typename Key, typename Value, typename Compare, typename KeyExtract>
 class key_less {
-	typedef typename Traits::Value Value;
-	typedef typename Traits::Compare Compare;
-
 	Compare comp;
+	KeyExtract key_extract;
 
 public:
 	key_less(const Compare & comp)
 		: comp(comp)
+		, key_extract()
 	{
 	}
 
 	bool operator()(const Value & v1, const Value & v2) const {
-		return comp(Traits::key_of_value(v1), Traits::key_of_value(v2));
+		return comp(key_extract(v1), key_extract(v2));
 	}
 };
 
