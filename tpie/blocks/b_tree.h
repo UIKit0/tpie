@@ -63,7 +63,7 @@ public:
 	b_tree()
 		: m_root(0)
 		, m_treeHeight(0)
-		, m_key_extract()
+		, m_keyExtract()
 	{
 		set_default_parameters();
 	}
@@ -130,7 +130,7 @@ public:
 	void insert(Value v) {
 		if (!is_open()) throw exception("insert: block collection not open");
 		block_buffer buf;
-		Key k = m_key_extract(v);
+		Key k = m_keyExtract(v);
 		// Find the leaf in which the value should be inserted.
 		b_tree_path p = key_path(buf, k);
 		block_handle leftChild;
@@ -483,7 +483,7 @@ private:
 	Compare m_comp;
 	memory_size_type m_treeHeight;
 	b_tree_parameters m_params;
-	KeyExtract m_key_extract;
+	KeyExtract m_keyExtract;
 
 	friend class b_tree_builder<Key, Value, Compare, KeyExtract>;
 };
