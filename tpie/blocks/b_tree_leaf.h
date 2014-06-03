@@ -38,7 +38,7 @@ public:
 
 	b_tree_leaf(block_buffer & buffer, const b_tree_parameters & params)
 		: m_params(params)
-		, m_key_extract()
+		, m_keyExtract()
 	{
 		m_header = reinterpret_cast<b_tree_header *>(buffer.get());
 		m_values = reinterpret_cast<Value *>(buffer.get() + sizeof(b_tree_header));
@@ -59,7 +59,7 @@ public:
 	memory_size_type index_of(const Key & key, Compare comp) const {
 		memory_size_type i = 0;
 		while (i != degree()) {
-			Key k = m_key_extract(m_values[i]);
+			Key k = m_keyExtract(m_values[i]);
 			if (!comp(k, key) && !comp(key, k)) break;
 			++i;
 		}
@@ -151,10 +151,10 @@ public:
 		// At this point, verify that all values in the left leaf
 		// are less than all values in the right leaf.
 		Value * rightMin = std::min_element(rightLeaf.m_values, rightLeaf.m_values + rightLeaf.degree(), key_less<Key, Value, Compare, KeyExtract>(comp));
-		Key rightMinKey = m_key_extract(*rightMin);
+		Key rightMinKey = m_keyExtract(*rightMin);
 #ifndef TPIE_NDEBUG
 		Value * leftMax = std::max_element(m_values, m_values + degree(), key_less<Key, Value, Compare, KeyExtract>(comp));
-		Key leftMaxKey = m_key_extract(*leftMax);
+		Key leftMaxKey = m_keyExtract(*leftMax);
 		if (comp(rightMinKey, leftMaxKey)) {
 			throw exception("split_insert failed to maintain order invariant");
 		}
@@ -213,7 +213,7 @@ public:
 					  right.m_values);
 			right.m_header->degree = (values.get() + values.size()) - midPoint;
 
-			midKey = m_key_extract(*midPoint);
+			midKey = m_keyExtract(*midPoint);
 			return fuse_share;
 		}
 	}
@@ -222,7 +222,7 @@ private:
 	b_tree_header * m_header;
 	Value * m_values;
 	b_tree_parameters m_params;
-	KeyExtract m_key_extract;
+	KeyExtract m_keyExtract;
 };
 
 } // namespace blocks
