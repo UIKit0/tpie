@@ -134,7 +134,7 @@ public:
 		, m_blocks(m_tree.m_blocks)
 		, m_params(m_tree.m_params)
 		, m_layers(m_params)
-		, m_key_extract()
+		, m_keyExtract()
 	{
 		m_blocks.get_free_block(m_leafBuffer);
 	}
@@ -154,7 +154,7 @@ public:
 		{
 			b_tree_leaf<Key, Value, Compare, KeyExtract> leaf(m_leafBuffer, m_params);
 			if (leaf.empty()) {
-				m_leafKey = m_key_extract(v);
+				m_leafKey = m_keyExtract(v);
 			}
 			leaf.insert(v);
 		}
@@ -283,7 +283,7 @@ private:
 	/** B tree fragments that will make up the final B tree. */
 	b_tree_block_overview<Key, Value, Compare, KeyExtract> m_layers;
 
-	KeyExtract m_key_extract;
+	KeyExtract m_keyExtract;
 };
 
 } // namespace blocks
