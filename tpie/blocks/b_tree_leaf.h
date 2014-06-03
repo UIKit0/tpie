@@ -28,7 +28,7 @@ namespace tpie {
 
 namespace blocks {
 
-template <typename Key, typename Value, typename Compare, typename KeyExtract>
+template <typename Key, typename Value, typename Compare, typename KeyExtract, typename Augment, typename Augmentor=empty_augmentor>
 class b_tree_leaf {
 public:
 	static memory_size_type calculate_fanout(memory_size_type blockSize) {
@@ -103,10 +103,10 @@ public:
 	Key split_insert(Value v, block_buffer & rightBuf, const Compare & comp) {
 		if (m_header->degree != m_params.leafMax) throw exception("Split insert in non-full leaf");
 
-		b_tree_leaf<Key, Value, Compare, KeyExtract> rightLeaf(rightBuf, m_params);
+		b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> rightLeaf(rightBuf, m_params);
 
 		Value * endPoint = m_values + m_params.leafMax;
-		Value * insertionPoint = std::partition(m_values, endPoint, key_less_than<Key, Value, Compare, KeyExtract>(comp, v));
+		Value * insertionPoint = std::partition(m_values, endPoint, key_less_than<Key, Value, Compare, KeyExtract, Augment, Augmentor>(comp, v));
 		Value * splitPoint = m_values + m_params.leafMax/2;
 
 		// All values in [m_values, insertionPoint) are less than v,
@@ -114,7 +114,7 @@ public:
 
 		if (insertionPoint < splitPoint) {
 			// We must insert v into left leaf.
-			std::nth_element(insertionPoint, splitPoint, endPoint, key_less<Key, Value, Compare, KeyExtract>(comp));
+			std::nth_element(insertionPoint, splitPoint, endPoint, key_less<Key, Value, Compare, KeyExtract, Augment, Augmentor>(comp));
 			// All values in [m_values, insertionPoint) are less than
 			// all values in [insertionPoint, splitPoint) which are less than
 			// all values in [splitPoint, endPoint).
@@ -126,7 +126,7 @@ public:
 			*splitPoint = v;
 		} else if (insertionPoint > splitPoint) {
 			// We must insert v into right leaf.
-			std::nth_element(m_values, splitPoint, insertionPoint, key_less<Key, Value, Compare, KeyExtract>(comp));
+			std::nth_element(m_values, splitPoint, insertionPoint, key_less<Key, Value, Compare, KeyExtract, Augment, Augmentor>(comp));
 			// All values in [m_values, splitPoint) are less than
 			// all values in [splitPoint, insertionPoint) which are less than
 			// all values in [insertionPoint, endPoint).
@@ -150,10 +150,10 @@ public:
 
 		// At this point, verify that all values in the left leaf
 		// are less than all values in the right leaf.
-		Value * rightMin = std::min_element(rightLeaf.m_values, rightLeaf.m_values + rightLeaf.degree(), key_less<Key, Value, Compare, KeyExtract>(comp));
+		Value * rightMin = std::min_element(rightLeaf.m_values, rightLeaf.m_values + rightLeaf.degree(), key_less<Key, Value, Compare, KeyExtract, Augment, Augmentor>(comp));
 		Key rightMinKey = m_keyExtract(*rightMin);
 #ifndef TPIE_NDEBUG
-		Value * leftMax = std::max_element(m_values, m_values + degree(), key_less<Key, Value, Compare, KeyExtract>(comp));
+		Value * leftMax = std::max_element(m_values, m_values + degree(), key_less<Key, Value, Compare, KeyExtract, Augment, Augmentor>(comp));
 		Key leftMaxKey = m_keyExtract(*leftMax);
 		if (comp(rightMinKey, leftMaxKey)) {
 			throw exception("split_insert failed to maintain order invariant");
@@ -201,7 +201,7 @@ public:
 			std::nth_element(values.get(),
 							 midPoint,
 							 values.get() + values.size(),
-							 key_less<Key, Value, Compare, KeyExtract>(comp));
+							 key_less<Key, Value, Compare, KeyExtract, Augment, Augmentor>(comp));
 
 			std::copy(values.get(),
 					  midPoint,

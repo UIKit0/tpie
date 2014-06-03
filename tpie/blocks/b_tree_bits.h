@@ -94,7 +94,7 @@ enum fuse_result {
 };
 
 // Functor for partitioning an array of Values according to a given Key.
-template <typename Key, typename Value, typename Compare, typename KeyExtract>
+template <typename Key, typename Value, typename Compare, typename KeyExtract, typename Augment, typename Augmentor>
 class key_less_than {
 	Compare m_comp;
 	KeyExtract m_keyExtract;
@@ -114,7 +114,7 @@ public:
 };
 
 // Comparator for sorting an array of Values by their Keys.
-template <typename Key, typename Value, typename Compare, typename KeyExtract>
+template <typename Key, typename Value, typename Compare, typename KeyExtract, typename Augment, typename Augmentor>
 class key_less {
 	Compare m_comp;
 	KeyExtract m_keyExtract;

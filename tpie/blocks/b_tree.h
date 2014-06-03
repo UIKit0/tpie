@@ -54,10 +54,10 @@ namespace tpie {
 
 namespace blocks {
 
-template <typename Key, typename Value=Key, typename Compare=std::less<Key>, typename KeyExtract=identity_key_extract<Value> >
+template <typename Key, typename Value, typename Compare, typename KeyExtract, typename Augment, typename Augmentor>
 class b_tree_builder;
 
-template <typename Key, typename Value=Key, typename Compare=std::less<Key>, typename KeyExtract=identity_key_extract<Value> >
+template <typename Key, typename Value=Key, typename Compare=std::less<Key>, typename KeyExtract=identity_key_extract<Value>, typename Augment=empty_augment, typename Augmentor=empty_augmentor>
 class b_tree {
 public:
 	b_tree()
@@ -78,9 +78,9 @@ public:
 
 	void set_default_parameters() {
 		if (is_open()) throw exception("set_default_parameters: block collection already open");
-		m_params.nodeMax = b_tree_block<Key, Value, Compare, KeyExtract>::calculate_fanout(block_size());
+		m_params.nodeMax = b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor>::calculate_fanout(block_size());
 		m_params.nodeMin = (m_params.nodeMax + 3)/4;
-		m_params.leafMax = b_tree_leaf<Key, Value, Compare, KeyExtract>::calculate_fanout(block_size());
+		m_params.leafMax = b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor>::calculate_fanout(block_size());
 		m_params.leafMin = (m_params.leafMax + 3)/4;
 		verify_parameters();
 		log_parameters();
@@ -138,7 +138,7 @@ public:
 
 		{
 			// If the leaf is not full, we do a cheap insert and return.
-			b_tree_leaf<Key, Value, Compare, KeyExtract> leaf(buf, m_params);
+			b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> leaf(buf, m_params);
 			if (!leaf.full()) {
 				leaf.insert(v);
 				m_blocks.write_block(buf);
@@ -164,7 +164,7 @@ public:
 			// Special case: The root was previously a single leaf
 			// which has now been split into two.
 			m_blocks.get_free_block(buf);
-			b_tree_block<Key, Value, Compare, KeyExtract> block(buf, m_params);
+			b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> block(buf, m_params);
 			block.new_root(k, leftChild, rightChild);
 			m_blocks.write_block(buf);
 			++m_treeHeight;
@@ -173,7 +173,7 @@ public:
 			return;
 		}
 
-		b_tree_block<Key, Value, Compare, KeyExtract> block(buf, m_params);
+		b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> block(buf, m_params);
 
 		// Repeatedly split blocks until we hit a non-full block
 		// or we hit the root of the tree.
@@ -220,7 +220,7 @@ public:
 		// Find leaf from which to erase.
 		b_tree_path p = key_path(buf, k);
 		{
-			b_tree_leaf<Key, Value, Compare, KeyExtract> leaf(buf, m_params);
+			b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> leaf(buf, m_params);
 
 			leaf.erase(k, m_comp);
 
@@ -239,7 +239,7 @@ public:
 		block_buffer right;
 
 		m_blocks.read_block(p.current_block(), buf);
-		b_tree_block<Key, Value, Compare, KeyExtract> block(buf, m_params);
+		b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> block(buf, m_params);
 		m_blocks.read_block(block.child(rightIndex-1), left);
 		m_blocks.read_block(block.child(rightIndex), right);
 		switch (block.fuse_leaves(rightIndex, left, right, m_comp)) {
@@ -300,7 +300,7 @@ public:
 		if (!is_open()) throw exception("count: block collection not open");
 		block_buffer buf;
 		b_tree_path p = key_path(buf, k);
-		b_tree_leaf<Key, Value, Compare, KeyExtract> leaf(buf, m_params);
+		b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> leaf(buf, m_params);
 		return leaf.count(k, m_comp);
 	}
 
@@ -317,7 +317,7 @@ public:
 		if (!is_open()) throw exception("try_find: block collection not open");
 		block_buffer buf;
 		b_tree_path p = key_path(buf, k);
-		b_tree_leaf<Key, Value, Compare, KeyExtract> leaf(buf, m_params);
+		b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> leaf(buf, m_params);
 		memory_size_type i = leaf.index_of(k, m_comp);
 		if (i == leaf.degree()) {
 			return false;
@@ -405,7 +405,7 @@ private:
 		read_root(buf);
 
 		for (memory_size_type i = 0; i < m_treeHeight; ++i) {
-			b_tree_block<Key, Value, Compare, KeyExtract> b(buf, m_params);
+			b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> b(buf, m_params);
 
 			memory_size_type j;
 			for (j = 0; j != b.keys(); ++j)
@@ -446,19 +446,19 @@ private:
 		block_buffer buf;
 		m_blocks.read_block(id, buf);
 		if (leafDistance == 0) {
-			b_tree_leaf<Key, Value, Compare, KeyExtract> leaf(buf, m_params);
+			b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> leaf(buf, m_params);
 			std::vector<Value> vals;
 			vals.reserve(leaf.degree());
 			for (memory_size_type i = 0; i < leaf.degree(); ++i) {
 				vals.push_back(leaf[i]);
 			}
-			std::sort(vals.begin(), vals.end(), key_less<Key, Value, Compare, KeyExtract>(m_comp));
+			std::sort(vals.begin(), vals.end(), key_less<Key, Value, Compare, KeyExtract, Augment, Augmentor>(m_comp));
 			for (memory_size_type i = 0; i < vals.size(); ++i) {
 				*it = vals[i];
 				++it;
 			}
 		} else {
-			b_tree_block<Key, Value, Compare, KeyExtract> block(buf, m_params);
+			b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> block(buf, m_params);
 			if (block.underfull() && id != m_root) {
 				log_error() << "in_order_dump: Underfull non-root block " << id << std::endl;
 			}
@@ -485,7 +485,7 @@ private:
 	b_tree_parameters m_params;
 	KeyExtract m_keyExtract;
 
-	friend class b_tree_builder<Key, Value, Compare, KeyExtract>;
+	friend class b_tree_builder<Key, Value, Compare, KeyExtract, Augment, Augmentor>;
 };
 
 } // namespace blocks

@@ -31,7 +31,7 @@ namespace tpie {
 
 namespace blocks {
 
-template <typename Key, typename Value, typename Compare,typename KeyExtract>
+template <typename Key, typename Value, typename Compare,typename KeyExtract, typename Augment, typename Augmentor>
 class b_tree_block {
 public:
 	static memory_size_type calculate_fanout(memory_size_type blockSize) {
@@ -170,8 +170,8 @@ public:
 		Key midKey;
 
 		{
-			b_tree_block<Key, Value, Compare, KeyExtract> left(leftBuf, m_params);
-			b_tree_block<Key, Value, Compare, KeyExtract> right(rightBuf, m_params);
+			b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> left(leftBuf, m_params);
+			b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> right(rightBuf, m_params);
 
 			memory_size_type in = 0;
 			memory_size_type out;
@@ -206,8 +206,8 @@ public:
 							block_buffer & rightBuf,
 							const Compare & comp)
 	{
-		b_tree_leaf<Key, Value, Compare, KeyExtract> left(leftBuf, m_params);
-		b_tree_leaf<Key, Value, Compare, KeyExtract> right(rightBuf, m_params);
+		b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> left(leftBuf, m_params);
+		b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> right(rightBuf, m_params);
 		Key k;
 		switch (left.fuse_with(right, k, comp)) {
 			case fuse_merge:
@@ -233,8 +233,8 @@ public:
 					 block_buffer & leftBuf,
 					 block_buffer & rightBuf)
 	{
-		b_tree_block<Key, Value, Compare, KeyExtract> left(leftBuf, m_params);
-		b_tree_block<Key, Value, Compare, KeyExtract> right(rightBuf, m_params);
+		b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> left(leftBuf, m_params);
+		b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> right(rightBuf, m_params);
 
 		std::vector<Key> keys(left.keys() + 1 + right.keys());
 		std::vector<block_handle> children(left.degree() + right.degree());
