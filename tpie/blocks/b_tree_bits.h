@@ -37,6 +37,16 @@ struct identity_key_extract {
 	}
 };
 
+struct empty_augment {
+
+};
+
+struct empty_augmentor {
+	empty_augment operator()(empty_augment *, empty_augment *) {
+		return empty_augment();
+	};
+};
+
 struct b_tree_header {
 	/** Number of child blocks or leaf values. */
 	uint64_t degree;
