@@ -43,7 +43,7 @@ public:
 
 	b_tree_block(block_buffer & buffer, const b_tree_parameters & params)
 		: m_params(params)
-		, m_key_extract()
+		, m_keyExtract()
 	{
 		char * children = buffer.get() + sizeof(b_tree_header);
 		char * keys = children + params.nodeMax * sizeof(block_handle);
@@ -309,7 +309,7 @@ private:
 	block_handle * m_children;
 	Key * m_keys;
 	b_tree_parameters m_params;
-	KeyExtract m_key_extract;
+	KeyExtract m_keyExtract;
 };
 
 } // namespace blocks
