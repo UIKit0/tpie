@@ -106,18 +106,18 @@ public:
 // Comparator for sorting an array of Values by their Keys.
 template <typename Key, typename Value, typename Compare, typename KeyExtract>
 class key_less {
-	Compare comp;
-	KeyExtract key_extract;
+	Compare m_comp;
+	KeyExtract m_keyExtract;
 
 public:
 	key_less(const Compare & comp)
-		: comp(comp)
-		, key_extract()
+		: m_comp(comp)
+		, m_keyExtract()
 	{
 	}
 
 	bool operator()(const Value & v1, const Value & v2) const {
-		return comp(key_extract(v1), key_extract(v2));
+		return m_comp(m_keyExtract(v1), m_keyExtract(v2));
 	}
 };
 
