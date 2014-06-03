@@ -86,20 +86,20 @@ enum fuse_result {
 // Functor for partitioning an array of Values according to a given Key.
 template <typename Key, typename Value, typename Compare, typename KeyExtract>
 class key_less_than {
-	Compare comp;
-	KeyExtract key_extract;
-	Key key;
+	Compare m_comp;
+	KeyExtract m_keyExtract;
+	Key m_key;
 
 public:
 	key_less_than(const Compare & comp, const Value & v)
-		: comp(comp)
-		, key_extract()
-		, key(key_extract(v))
+		: m_comp(comp)
+		, m_keyExtract()
+		, m_key(m_keyExtract(v))
 	{
 	}
 
 	bool operator()(const Value & v) const {
-		return comp(key_extract(v), key);
+		return m_comp(m_keyExtract(v), m_key);
 	}
 };
 
