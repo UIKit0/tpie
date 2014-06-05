@@ -41,10 +41,15 @@ struct empty_augment {
 
 };
 
+template <typename T>
 struct empty_augmentor {
-	empty_augment operator()(empty_augment *, empty_augment *) {
+	empty_augment operator()(empty_augment *, empty_augment *) { // calculate the augment for an internal node
 		return empty_augment();
 	};
+
+	empty_augment operator()(T *, T *) { // calculate the augment for a leaf node
+		return empty_augment();
+	}
 };
 
 struct b_tree_header {

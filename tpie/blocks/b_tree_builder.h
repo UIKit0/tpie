@@ -41,7 +41,7 @@ namespace blocks {
 /// and can be modified through the methods
 /// push_block() and pop_front().
 ///////////////////////////////////////////////////////////////////////////////
-template <typename Key, typename Value=Key, typename Compare=std::less<Key>, typename KeyExtract=identity_key_extract<Value>, typename Augment=empty_augment, typename Augmentor=empty_augmentor>
+template <typename Key, typename Value=Key, typename Compare=std::less<Key>, typename KeyExtract=identity_key_extract<Value>, typename Augment=empty_augment, typename Augmentor=empty_augmentor<Value> >
 class b_tree_block_overview {
 	// We could use a std::pair, but `handle` and `key` are better than
 	// `first` and `second`.
@@ -125,7 +125,7 @@ private:
 ///
 /// In the end, all the remaining B trees are merged into the resulting B tree.
 ///////////////////////////////////////////////////////////////////////////////
-template <typename Key, typename Value=Key, typename Compare=std::less<Key>, typename KeyExtract=identity_key_extract<Value>, typename Augment=empty_augment, typename Augmentor=empty_augmentor>
+template <typename Key, typename Value=Key, typename Compare=std::less<Key>, typename KeyExtract=identity_key_extract<Value>, typename Augment=empty_augment, typename Augmentor=empty_augmentor<Value> >
 class b_tree_builder {
 public:
 	b_tree_builder(b_tree<Key, Value, Compare, KeyExtract, Augment, Augmentor> & res)

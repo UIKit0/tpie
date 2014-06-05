@@ -28,7 +28,7 @@ namespace tpie {
 
 namespace blocks {
 
-template <typename Key, typename Value, typename Compare, typename KeyExtract, typename Augment, typename Augmentor=empty_augmentor>
+template <typename Key, typename Value, typename Compare, typename KeyExtract, typename Augment, typename Augmentor=empty_augmentor<Value> >
 class b_tree_leaf {
 public:
 	static memory_size_type calculate_fanout(memory_size_type blockSize) {

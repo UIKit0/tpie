@@ -57,7 +57,7 @@ namespace blocks {
 template <typename Key, typename Value, typename Compare, typename KeyExtract, typename Augment, typename Augmentor>
 class b_tree_builder;
 
-template <typename Key, typename Value=Key, typename Compare=std::less<Key>, typename KeyExtract=identity_key_extract<Value>, typename Augment=empty_augment, typename Augmentor=empty_augmentor>
+template <typename Key, typename Value=Key, typename Compare=std::less<Key>, typename KeyExtract=identity_key_extract<Value>, typename Augment=empty_augment, typename Augmentor=empty_augmentor<Value> >
 class b_tree {
 public:
 	b_tree()
