@@ -21,6 +21,7 @@
 #include <tpie/blocks/b_tree.h>
 #include <tpie/prime.h>
 #include <tpie/pipelining/b_tree.h>
+#include <numeric>
 
 typedef size_t key_type;
 typedef tpie::blocks::b_tree<key_type> tree_type;
@@ -68,6 +69,46 @@ bool b_tree_test_2(key_type items) {
 			return false;
 		}
 	}
+	return true;
+}
+
+struct average_augment {
+	int sum;
+	size_t count;
+
+	float average() const {
+		return static_cast<float>(sum)/count;
+	}
+};
+
+struct average_augmentor {
+	average_augment operator()(int * first, int * last) const {
+		average_augment res;
+		res.sum = std::accumulate(first, last, 0);
+		res.count = static_cast<size_t>(last-first);
+
+		return res;
+	}
+
+	average_augment operator()(average_augment * first, average_augment * last) const {
+		average_augment res;
+		res.sum = 0;
+		res.count = 0;
+
+		for(average_augment * i = first; i != last; ++i) {
+			res.sum += i->sum;
+			res.count += i->count;
+		}
+
+		return res;
+	}
+};
+
+bool augmented_b_tree_test() {
+	tpie::blocks::b_tree<int, int, std::less<int>, tpie::blocks::identity_key_extract<int>, average_augment , average_augmentor> tree;
+
+	// stub for unit testing of augmented B trees.
+
 	return true;
 }
 
@@ -215,6 +256,7 @@ int main(int argc, char ** argv) {
 	return tpie::tests(argc, argv)
 	.test(b_tree_test, "b_tree")
 	.test(b_tree_test_2, "b_tree_2", "n", static_cast<key_type>(1000))
+	.test(augmented_b_tree_test, "augmented_b_tree")
 	.test(b_tree_erase_test, "b_tree_erase",
 		  "n", static_cast<key_type>(1000),
 		  "fanout", static_cast<size_t>(0))
