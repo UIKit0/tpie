@@ -137,27 +137,28 @@ public:
 		block_handle rightChild;
 
 		{
-			// If the leaf is not full, we do a cheap insert and return.
 			b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> leaf(buf, m_params);
+
+			// If the leaf is not full, we do a cheap insert and return.
 			if (!leaf.full()) {
 				leaf.insert(v);
 				m_blocks.write_block(buf);
 				return;
-			} else {
-				// Split the leaf.
-				block_buffer & left = buf;
-				block_buffer right;
-
-				m_blocks.get_free_block(right);
-
-				k = leaf.split_insert(v, right, m_comp);
-				m_blocks.write_block(left);
-				m_blocks.write_block(right);
-
-				// Proceed with recursive insertion below.
-				leftChild = left.get_handle();
-				rightChild = right.get_handle();
 			}
+
+			// Split the leaf.
+			block_buffer & left = buf;
+			block_buffer right;
+
+			m_blocks.get_free_block(right);
+
+			k = leaf.split_insert(v, right, m_comp);
+			m_blocks.write_block(left);
+			m_blocks.write_block(right);
+
+			// Proceed with recursive insertion below.
+			leftChild = left.get_handle();
+			rightChild = right.get_handle();
 		}
 
 		if (p.empty()) {
