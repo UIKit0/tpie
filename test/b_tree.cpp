@@ -21,21 +21,23 @@
 #include <tpie/tpie.h>
 #include <tpie/blocks/b_tree.h>
 
-class traits {
-public:
-	typedef size_t Key;
-	struct Value {
-		size_t key;
-		char value[40];
-	};
-	typedef std::less<size_t> Compare;
-	static Key key_of_value(const Value & v) { return v.key; }
+typedef size_t key_type;
+
+struct value_type {
+	key_type key;
+	char value[40];
+};
+
+struct key_extract {
+	key_type operator()(const value_type & v) const {
+		return v.key;
+	}
 };
 
 class number_output {
 	class dereferenced {
 	public:
-		dereferenced & operator=(const traits::Value & v) {
+		dereferenced & operator=(const value_type & v) {
 			std::cout << v.key << ' ' << std::string(v.value, v.value+sizeof(v.value)) << std::endl;
 			return *this;
 		}
@@ -50,10 +52,10 @@ int main() {
 	{
 		tpie::stderr_log_target tgt(tpie::LOG_DEBUG);
 		tpie::get_log().add_target(&tgt);
-		tpie::blocks::b_tree<traits> t;
+		tpie::blocks::b_tree<key_type, value_type, std::less<key_type>, key_extract> t;
 		std::string cmd;
-		size_t key;
-		traits::Value v;
+		key_type key;
+		value_type v;
 		while (std::cin >> cmd) {
 			std::string line;
 			std::getline(std::cin, line);
