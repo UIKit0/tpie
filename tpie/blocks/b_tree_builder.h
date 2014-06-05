@@ -43,18 +43,18 @@ namespace blocks {
 ///////////////////////////////////////////////////////////////////////////////
 template <typename Key, typename Value=Key, typename Compare=std::less<Key>, typename KeyExtract=identity_key_extract<Value>, typename Augment=empty_augment, typename Augmentor=empty_augmentor<Value> >
 class b_tree_block_overview {
-	// We could use a std::pair, but `handle` and `key` are better than
-	// `first` and `second`.
-	struct handle_key_pair {
+	struct handle_key_tuple {
 		block_handle handle;
+		Augment augment;
 		Key key;
 	};
 
 	// Similar to std::make_pair.
-	handle_key_pair make_pair(block_handle handle, Key key) {
-		handle_key_pair res;
+	handle_key_tuple make_tuple(block_handle handle, Key key, Augment augment) {
+		handle_key_tuple res;
 		res.handle = handle;
 		res.key = key;
+		res.augment = augment;
 		return res;
 	}
 
@@ -74,7 +74,7 @@ public:
 	}
 
 	void push_layer() {
-		m_layers.push_back(std::deque<handle_key_pair>());
+		m_layers.push_back(std::deque<handle_key_tuple>());
 	}
 
 	memory_size_type layer_size(memory_size_type level) const {
@@ -91,9 +91,14 @@ public:
 		return m_layers[level].front().handle;
 	}
 
-	void push_block(memory_size_type level, Key firstKey, block_handle hdl) {
+	Augment front_augment(memory_size_type level) const {
+		if (empty(level)) throw exception("front_augment: empty level");
+		return m_layers[level].front().augment;
+	}
+
+	void push_block(memory_size_type level, Key firstKey, block_handle hdl, Augment augment) {
 		if (hdl == block_handle(0)) throw exception("Zero handle in push_block");
-		m_layers[level].push_back(make_pair(hdl, firstKey));
+		m_layers[level].push_back(make_tuple(hdl, firstKey, augment));
 	}
 
 	void pop_front(memory_size_type level) {
@@ -103,7 +108,7 @@ public:
 
 private:
 	const b_tree_parameters & m_params;
-	std::vector<std::deque<handle_key_pair> > m_layers;
+	std::vector<std::deque<handle_key_tuple> > m_layers;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -198,7 +203,8 @@ public:
 
 private:
 	void push_leaf() {
-		m_layers.push_block(0, m_leafKey, m_leafBuffer.get_handle());
+		b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> leaf(m_leafBuffer, m_params);
+		m_layers.push_block(0, m_leafKey, m_leafBuffer.get_handle(), leaf.augment());
 		m_blocks.write_block(m_leafBuffer);
 		reduce_layer(0);
 	}
@@ -246,14 +252,14 @@ private:
 		m_blocks.get_free_block(buf);
 		b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> block(buf, m_params);
 		block.clear();
-		m_layers.push_block(level, m_layers.front_key(level-1), buf.get_handle());
+		m_layers.push_block(level, m_layers.front_key(level-1), buf.get_handle(), block.augment());
 		for (memory_size_type i = 0; i < children; ++i) {
 			if (m_layers.empty(level-1))
 				throw exception("push_block: source is empty");
 			if (i == 0) {
-				block.push_first_child(m_layers.front_handle(level-1));
+				block.push_first_child(m_layers.front_handle(level-1), m_layers.front_augment(level-1));
 			} else {
-				block.push_child(m_layers.front_key(level-1), m_layers.front_handle(level-1));
+				block.push_child(m_layers.front_key(level-1), m_layers.front_handle(level-1), m_layers.front_augment(level-1));
 			}
 			m_layers.pop_front(level-1);
 		}

@@ -35,30 +35,38 @@ template <typename Key, typename Value, typename Compare,typename KeyExtract, ty
 class b_tree_block {
 public:
 	static memory_size_type calculate_fanout(memory_size_type blockSize) {
+		memory_size_type perChild = sizeof(block_handle) + sizeof(Augment);
+		memory_size_type perKey =  sizeof(Key) + perChild;
 		blockSize -= sizeof(b_tree_header);
-		blockSize -= sizeof(block_handle); // one more child pointer than keys
-		memory_size_type perKey = sizeof(block_handle) + sizeof(Key);
+		blockSize -= perChild; // one more child pointer than keys
 		return blockSize / perKey; // floored division
 	}
 
 	b_tree_block(block_buffer & buffer, const b_tree_parameters & params)
 		: m_params(params)
 		, m_keyExtract()
+		, m_augmentor()
 	{
 		char * children = buffer.get() + sizeof(b_tree_header);
-		char * keys = children + params.nodeMax * sizeof(block_handle);
+		char * augments = children + params.nodeMax * sizeof(block_handle);
+		char * keys = augments + params.nodeMax * sizeof(Augment);
 
 		m_header = reinterpret_cast<b_tree_header *>(buffer.get());
 		m_children = reinterpret_cast<block_handle *>(children);
+		m_augments = reinterpret_cast<Augment *>(augments);
 		m_keys = reinterpret_cast<Key *>(keys);
 	}
 
 	// Called by b_tree::insert after splitting the root into `left` and `right`.
-	void new_root(const Key & k, const block_handle & left, const block_handle & right) {
+	void new_root(const Key & k, block_handle left, const Augment & leftAugment, block_handle right, const Augment & rightAugment) {
 		m_header->degree = 2;
 		m_keys[0] = k;
+
 		m_children[0] = left;
+		m_augments[0] = leftAugment;
+
 		m_children[1] = right;
+		m_augments[1] = rightAugment;
 	}
 
 	void clear() {
@@ -66,22 +74,24 @@ public:
 	}
 
 	// Internal helper used by b_tree_builder.
-	void push_first_child(block_handle block) {
+	void push_first_child(block_handle block, const Augment & augment) {
 		if (!empty())
 			throw exception("push_first_child: !empty");
 
 		m_children[0] = block;
+		m_augments[0] = augment;
 		m_header->degree = 1;
 	}
 
 	// Internal helper used by b_tree_builder.
-	void push_child(Key k, block_handle block) {
+	void push_child(Key k, block_handle block, const Augment & augment) {
 		if (full())
 			throw exception("push_child: full");
 
 		++m_header->degree;
 		m_keys[m_header->degree - 2] = k;
 		m_children[m_header->degree - 1] = block;
+		m_augments[m_header->degree - 1] = augment;
 	}
 
 	memory_size_type degree() const {
@@ -90,6 +100,11 @@ public:
 
 	memory_size_type keys() const {
 		return degree() - 1;
+	}
+
+	// calculates the augment for the given block
+	Augment augment() const {
+		return m_augmentor(m_augments, m_augments + degree());
 	}
 
 	// Definition 1, second bullet:
@@ -118,20 +133,35 @@ public:
 		return m_children[idx];
 	}
 
+	const Augment & augment(memory_size_type idx) const  {
+		if (idx > degree()) throw exception("Block augment: Index out of bounds");
+		return m_augments[idx];
+	}
+
+	// set the augment for the child with index idx
+	void set_augment(memory_size_type idx, const Augment & augment) {
+		if(idx > degree()) throw exception("Block augment: Index out of bounds");
+		m_augments[idx] = augment;
+	}
+
 	// Called by b_tree::insert
 	// Pre-condition: !full()
-	void insert(memory_size_type i, Key k, block_handle leftChild, block_handle rightChild) {
+	void insert(memory_size_type i, Key k, block_handle leftChild, const Augment & leftAugment, block_handle rightChild, const Augment & rightAugment) {
 		if (full()) throw exception("Insert on full block");
 
 		m_children[i] = leftChild;
+		m_augments[i] = leftAugment;
 
-		block_handle c = rightChild;
+		block_handle handle = rightChild;
+		Augment augment = rightAugment;
 		while (i < keys()) {
-			std::swap(m_children[i+1], c);
+			std::swap(m_children[i+1], handle);
+			std::swap(m_augments[i+1], augment);
 			std::swap(m_keys[i], k);
 			++i;
 		}
-		m_children[i+1] = c;
+		m_children[i+1] = handle;
+		m_augments[i+1] = augment;
 		m_keys[i] = k;
 		++m_header->degree;
 	}
@@ -141,7 +171,9 @@ public:
 	Key split_insert(memory_size_type insertIndex,
 					 Key insertKey,
 					 block_handle leftChild,
+					 const Augment & leftAugment,
 					 block_handle rightChild,
+					 const Augment & rightAugment,
 					 block_buffer & leftBuf,
 					 block_buffer & rightBuf)
 	{
@@ -151,6 +183,7 @@ public:
 		typedef typename O::ptr_type KeyPtr;
 
 		std::vector<block_handle> children(degree()+1);
+		std::vector<Augment> augments(degree()+1);
 		std::vector<KeyPtr> keys(this->keys() + 1);
 
 		{
@@ -158,13 +191,17 @@ public:
 				memory_size_type dest = i;
 				if (insertIndex <= i) ++dest;
 				children[dest] = m_children[i];
+				augments[dest] = m_augments[i];
 				keys[dest] = O::get_ptr(m_keys[i]);
 			}
 			children[degree()] = m_children[degree()-1];
+			augments[degree()] = m_augments[degree()-1];
 
 			keys[insertIndex] = O::get_ptr(insertKey);
 			children[insertIndex] = leftChild;
+			augments[insertIndex] = leftAugment;
 			children[insertIndex+1] = rightChild;
+			augments[insertIndex+1] = rightAugment;
 		}
 
 		Key midKey;
@@ -177,10 +214,12 @@ public:
 			memory_size_type out;
 			for (out = 0; in*2 < keys.size(); ++out) {
 				left.m_children[out] = children[in];
+				left.m_augments[out] = augments[in];
 				left.m_keys[out] = O::get_val(keys[in]);
 				++in;
 			}
 			left.m_children[out] = children[in];
+			left.m_augments[out] = augments[in];
 			left.m_header->degree = static_cast<uint64_t>(out + 1);
 
 			midKey = O::get_val(keys[in]);
@@ -188,10 +227,12 @@ public:
 
 			for (out = 0; in < keys.size(); ++out) {
 				right.m_children[out] = children[in];
+				right.m_augments[out] = augments[in];
 				right.m_keys[out] = O::get_val(keys[in]);
 				++in;
 			}
 			right.m_children[out] = children[in];
+			right.m_augments[out] = augments[in];
 			right.m_header->degree = static_cast<uint64_t>(out + 1);
 		}
 
@@ -217,6 +258,9 @@ public:
 				std::copy(m_children + (rightIndex + 1),
 						  m_children + degree(),
 						  m_children + rightIndex);
+				std::copy(m_augments + (rightIndex + 1),
+						  m_augments + degree(),
+						  m_augments + rightIndex);
 				--m_header->degree;
 				return fuse_merge;
 			case fuse_share:
@@ -238,23 +282,28 @@ public:
 
 		std::vector<Key> keys(left.keys() + 1 + right.keys());
 		std::vector<block_handle> children(left.degree() + right.degree());
+		std::vector<Augment> augments(left.degree() + right.degree());
 
 		{
 			memory_size_type output = 0;
 			for (memory_size_type i = 0; i < left.keys(); ++i) {
 				keys[output] = left.key(i);
 				children[output] = left.child(i);
+				augments[output] = left.augment(i);
 				++output;
 			}
 			keys[output] = key(rightIndex-1);
 			children[output] = left.child(left.keys());
+			augments[output] = left.augment(left.keys());
 			++output;
 			for (memory_size_type i = 0; i < right.keys(); ++i) {
 				keys[output] = right.key(i);
 				children[output] = right.child(i);
+				augments[output] = right.augment(i);
 				++output;
 			}
 			children[output] = right.child(right.keys());
+			augments[output] = right.augment(right.keys());
 			++output;
 		}
 
@@ -265,6 +314,9 @@ public:
 			std::copy(children.begin(),
 					  children.end(),
 					  &left.m_children[0]);
+			std::copy(augments.begin(),
+					  augments.end(),
+					  &left.m_augments[0]);
 			left.m_header->degree = static_cast<uint64_t>(children.size());
 
 			std::copy(&m_keys[rightIndex],
@@ -273,6 +325,9 @@ public:
 			std::copy(&m_children[rightIndex+1],
 					  &m_children[degree()],
 					  &m_children[rightIndex]);
+			std::copy(&m_augments[rightIndex+1],
+					  &m_augments[degree()],
+					  &m_augments[rightIndex]);
 			--m_header->degree;
 
 			return fuse_merge;
@@ -286,6 +341,9 @@ public:
 			std::copy(children.begin(),
 					  children.begin() + half,
 					  &left.m_children[0]);
+			std::copy(augments.begin(),
+					  augments.begin() + half,
+					  &left.m_augments[0]);
 			left.m_header->degree =
 				static_cast<uint64_t>(half);
 
@@ -297,6 +355,9 @@ public:
 			std::copy(children.begin() + half,
 					  children.end(),
 					  &right.m_children[0]);
+			std::copy(augments.begin() + half,
+					  augments.end(),
+					  &right.m_augments[0]);
 			right.m_header->degree =
 				static_cast<uint64_t>(children.size() - half);
 
@@ -307,9 +368,11 @@ public:
 private:
 	b_tree_header * m_header;
 	block_handle * m_children;
+	Augment * m_augments;
 	Key * m_keys;
 	b_tree_parameters m_params;
 	KeyExtract m_keyExtract;
+	Augmentor m_augmentor;
 };
 
 } // namespace blocks

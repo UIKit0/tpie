@@ -123,6 +123,18 @@ private:
 			<< std::flush;
 	}
 
+	void augment_path(b_tree_path p, Augment a) { // updates augments for all nodes in the given path
+		block_buffer buf;
+		while(!p.empty()) {
+			m_blocks.read_block(p.current_block(), buf);
+			b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> block(buf, m_params);
+			block.set_augment(p.current_index(), a);
+			m_blocks.write_block(buf);
+
+			a = block.augment();
+			p.parent();
+		}
+	}
 public:
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief  Insert value into the B tree.
@@ -136,13 +148,17 @@ public:
 		block_handle leftChild;
 		block_handle rightChild;
 
+		Augment leftAugment; // the augment for leftChild
+		Augment rightAugment; // the augment for rightChild
+
 		{
 			b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> leaf(buf, m_params);
 
-			// If the leaf is not full, we do a cheap insert and return.
+			// If the leaf is not full, we do a cheap insert, augment the path and return.
 			if (!leaf.full()) {
 				leaf.insert(v);
 				m_blocks.write_block(buf);
+				augment_path(p, leaf.augment());
 				return;
 			}
 
@@ -157,16 +173,22 @@ public:
 			m_blocks.write_block(right);
 
 			// Proceed with recursive insertion below.
+			b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> leftLeaf(left, m_params);
 			leftChild = left.get_handle();
+			leftAugment = leftLeaf.augment();
+
+			b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> rightLeaf(right, m_params);
 			rightChild = right.get_handle();
+			rightAugment = rightLeaf.augment();
 		}
 
 		if (p.empty()) {
 			// Special case: The root was previously a single leaf
 			// which has now been split into two.
+			// There is no need to augment the path since it is empty.
 			m_blocks.get_free_block(buf);
 			b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> block(buf, m_params);
-			block.new_root(k, leftChild, rightChild);
+			block.new_root(k, leftChild, leftAugment, rightChild, rightAugment);
 			m_blocks.write_block(buf);
 			++m_treeHeight;
 			m_root = buf.get_handle();
@@ -186,20 +208,26 @@ public:
 			block_buffer right;
 			m_blocks.get_free_block(left);
 			m_blocks.get_free_block(right);
-			k = block.split_insert(p.current_index(), k, leftChild, rightChild, left, right);
+			k = block.split_insert(p.current_index(), k, leftChild, leftAugment, rightChild, rightAugment, left, right);
 			m_blocks.write_block(left);
 			m_blocks.write_block(right);
+
+			b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> leftLeaf(left, m_params);
 			leftChild = left.get_handle();
+			leftAugment = leftLeaf.augment();
+
+			b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> rightLeaf(left, m_params);
 			rightChild = right.get_handle();
+			rightAugment = rightLeaf.augment();
 
 			p.parent();
 			m_blocks.free_block(buf);
 		}
 
 		if (p.empty()) {
-			// We split the root.
+			// We split the root and do not augment the path since it is empty.
 			m_blocks.get_free_block(buf);
-			block.new_root(k, leftChild, rightChild);
+			block.new_root(k, leftChild, leftAugment, rightChild, rightAugment);
 			m_blocks.write_block(buf);
 			++m_treeHeight;
 			m_root = buf.get_handle();
@@ -207,8 +235,11 @@ public:
 		} else {
 			// We hit a non-full block.
 			m_blocks.read_block(p.current_block(), buf);
-			block.insert(p.current_index(), k, leftChild, rightChild);
+			block.insert(p.current_index(), k, leftChild, leftAugment, rightChild, rightAugment);
 			m_blocks.write_block(buf);
+			p.parent();
+
+			augment_path(p, block.augment());
 		}
 	}
 
@@ -227,8 +258,9 @@ public:
 
 			m_blocks.write_block(buf);
 			// If leaf is not underfull, or the leaf is the root of the tree,
-			// we quickly return.
+			// we augment the path and quickly return.
 			if (p.empty() || !leaf.underfull()) {
+				augment_path(p, leaf.augment());
 				return;
 			}
 		}
@@ -241,6 +273,7 @@ public:
 
 		m_blocks.read_block(p.current_block(), buf);
 		b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> block(buf, m_params);
+
 		m_blocks.read_block(block.child(rightIndex-1), left);
 		m_blocks.read_block(block.child(rightIndex), right);
 		switch (block.fuse_leaves(rightIndex, left, right, m_comp)) {
@@ -259,10 +292,13 @@ public:
 		}
 
 		p.parent();
+		Augment a =  block.augment();
 
 		while (!p.empty() && block.underfull()) {
 			memory_size_type i = p.current_index();
 			m_blocks.read_block(p.current_block(), buf);
+			block.set_augment(i, a);
+
 			memory_size_type rightIndex = (i == 0) ? 1 : i;
 			m_blocks.read_block(block.child(rightIndex-1), left);
 			m_blocks.read_block(block.child(rightIndex), right);
@@ -273,6 +309,9 @@ public:
 					m_blocks.write_block(buf);
 					m_blocks.write_block(left);
 					m_blocks.write_block(right);
+					a = block.augment();
+					p.parent();
+					augment_path(p, a);
 					return;
 				case fuse_merge:
 					//log_debug() << "Erase fuse_merge of " << left.get_handle()
@@ -280,6 +319,7 @@ public:
 					m_blocks.write_block(buf);
 					m_blocks.write_block(left);
 					m_blocks.free_block(right);
+					a = block.augment();
 					break;
 			}
 			p.parent();
@@ -289,7 +329,10 @@ public:
 			m_blocks.free_block(buf);
 			--m_treeHeight;
 			log_debug() << "Decrease tree height to " << m_treeHeight << "; root is now " << m_root << std::endl;
+			return;
 		}
+
+		augment_path(p, a);
 	}
 
 	///////////////////////////////////////////////////////////////////////////

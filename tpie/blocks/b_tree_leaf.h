@@ -39,6 +39,7 @@ public:
 	b_tree_leaf(block_buffer & buffer, const b_tree_parameters & params)
 		: m_params(params)
 		, m_keyExtract()
+		, m_augmentor()
 	{
 		m_header = reinterpret_cast<b_tree_header *>(buffer.get());
 		m_values = reinterpret_cast<Value *>(buffer.get() + sizeof(b_tree_header));
@@ -72,6 +73,11 @@ public:
 			return 0;
 		else
 			return 1;
+	}
+
+	// Return the augment for the given leaf
+	Augment augment() const {
+		return m_augmentor(m_values, m_values + degree());
 	}
 
 	// Definition 1, first bullet:
@@ -223,6 +229,7 @@ private:
 	Value * m_values;
 	b_tree_parameters m_params;
 	KeyExtract m_keyExtract;
+	Augmentor m_augmentor;
 };
 
 } // namespace blocks
