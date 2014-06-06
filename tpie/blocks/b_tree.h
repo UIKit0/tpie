@@ -64,6 +64,7 @@ public:
 		: m_root(0)
 		, m_treeHeight(0)
 		, m_keyExtract()
+		, m_augmentor()
 	{
 		set_default_parameters();
 	}
@@ -561,6 +562,72 @@ public:
 		leaf_range_report(a, b, func);
 	}
 
+	///////////////////////////////////////////////////////////////////////////////
+	/// \brief Returns the augment for the values in the interval [a;b]
+	///////////////////////////////////////////////////////////////////////////////
+	Augment augment(const Key & a, const Key & b) {
+		if(!is_open()) throw exception("in_order_dump: block collection not open");
+		if(m_root == block_handle(0)) {
+			log_debug() << "in_order_dump: Empty tree" << std::endl;
+			return Augment();
+		}
+		return augment_visit(a, b, false, false, m_root, m_treeHeight);
+	}
+private:
+	Augment augment_visit(const Key & a, const Key & b, bool leftInside, bool rightInside, block_handle id, memory_size_type leafDistance) {
+		// leftInside is true if a <= e for all keys in the tree
+		// rightInside is true if e <= b for all keys in the tree
+
+		if(id == block_handle(0)) {
+			log_debug() << "augment_visit: discovered block with block_handle 0" << std::endl;
+			return Augment();
+		}
+		block_buffer buf;
+		m_blocks.read_block(id, buf);
+		if(leafDistance == 0) { // the node is a leaf
+			b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> leaf(buf, m_params);
+
+			std::vector<Value> values;
+			for(Value const * i = leaf.begin(); i != leaf.end(); ++i) {
+				if(!m_comp(*i, a) && !m_comp(b, *i))
+					values.push_back(*i);
+			}
+
+			Value * begin = &values[0];
+			return m_augmentor(begin, begin + values.size());
+		}
+
+		// the node is an internal node
+		b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> block(buf, m_params);
+		if(block.underfull() && id != m_root)
+			log_error() << "in_order_dump: Underfull non-root block " << id << std::endl;
+
+		memory_size_type i, j;
+		// find first key k where a <= k
+		for(i = 0; i != block.keys(); ++i)
+			if(!m_comp(block.key(i), a)) break;
+
+		// find the first key k where b < k
+		for(j = i; j != block.keys(); ++j)
+			if(m_comp(b, block.key(j))) break;
+
+
+		Augment augments[j-i+1];
+		for(memory_size_type l = i; l <= j; ++l) {
+			bool newLeftInside = leftInside;
+			newLeftInside |= (l > 0 && !m_comp(block.key(l-1), a)); // inside if the previous key k satisfy a <= k
+			bool newRightInside = rightInside;
+			newRightInside |= (l < (block.degree() - 1) && !m_comp(b, block.key(l))); // inside if the next key k satisfy k <= b
+			if(newLeftInside && newRightInside)
+				augments[l-i] = block.augment(l);
+			else
+				augments[l-i] = augment_visit(a, b, newLeftInside, newRightInside, block.child(l), leafDistance-1);
+		}
+
+		return m_augmentor(augments, augments+(j-i+1));
+	}
+public:
+
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief  Iterate through values of the tree in-order.
 	///
@@ -621,6 +688,7 @@ private:
 	memory_size_type m_treeHeight;
 	b_tree_parameters m_params;
 	KeyExtract m_keyExtract;
+	Augmentor m_augmentor;
 
 	friend class b_tree_builder<Key, Value, Compare, KeyExtract, Augment, Augmentor>;
 };
