@@ -467,6 +467,95 @@ private:
 	}
 
 public:
+	struct leaf_range {
+		Value const * begin;
+		Value const * end;
+	};
+
+	///////////////////////////////////////////////////////////////////////////
+	/// \brief  Iterate through values of the tree in ther range [a;b].
+	///
+	/// \tparam It  An output iterator type that has Value among its
+	///             value types.
+	///////////////////////////////////////////////////////////////////////////
+	template <typename Func>
+	void leaf_range_report(const Key & a, const Key & b, Func func) {
+		if(!is_open()) throw exception("in_order_dump: block collection not open");
+		if(m_root == block_handle(0)) {
+			log_debug() << "in_order_dump: Empty tree" << std::endl;
+			return;
+		}
+		leaf_range_report_visit(a, b, func, m_root, m_treeHeight);
+	}
+
+private:
+	template <typename Func>
+	void leaf_range_report_visit(const Key & a, const Key & b, Func func, block_handle id, memory_size_type leafDistance) {
+		if(id == block_handle(0)) return;
+		block_buffer buf;
+		m_blocks.read_block(id, buf);
+		if(leafDistance == 0) { // the node is a leaf
+			b_tree_leaf<Key, Value, Compare, KeyExtract, Augment, Augmentor> leaf(buf, m_params);
+
+			leaf_range args;
+			args.begin = leaf.begin();
+			args.end  = leaf.end();
+			func(args);
+			return;
+		}
+
+		// the node is an internal node
+		b_tree_block<Key, Value, Compare, KeyExtract, Augment, Augmentor> block(buf, m_params);
+		if(block.underfull() && id != m_root)
+			log_error() << "in_order_dump: Underfull non-root block " << id << std::endl;
+
+		memory_size_type i, j;
+		// find first key k where a <= k
+		for(i = 0; i != block.keys(); ++i)
+			if(!m_comp(a, block.key(i))) break;
+
+		// find the first key k where !(k <= b)
+		for(j = i; j != block.keys(); ++j)
+			if(m_comp(b, block.key(j))) break;
+
+
+		for(memory_size_type l = i; l <= j; ++l) {
+			leaf_range_report_visit(a, b, func, block.child(l), leafDistance-1);
+		}
+	}
+
+	template <typename It>
+	class it_functor {
+	public:
+		it_functor(It it, const Key & a, const Key & b)
+		: it(it)
+		, m_comp()
+		, a(a)
+		, b(b)
+		{}
+
+		void operator()(leaf_range range) {
+			while(range.begin != range.end) {
+				if(!m_comp(*range.begin, a) && !m_comp(b, *range.begin))
+					*it = *(range.begin);
+				++it;
+				++(range.begin);
+			}
+		}
+	private:
+		It it;
+		Compare m_comp;
+		const Key & a;
+		const Key & b;
+	};
+
+public:
+	template <typename It>
+	void range_report(const Key & a, const Key & b, It it) {
+		it_functor<It> func(it, a, b);
+		leaf_range_report(a, b, func);
+	}
+
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief  Iterate through values of the tree in-order.
 	///

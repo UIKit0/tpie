@@ -53,6 +53,14 @@ public:
 		return static_cast<memory_size_type>(m_header->degree);
 	}
 
+	Value const * begin() const {
+		return m_values;
+	}
+
+	Value const * end() const {
+		return m_values + degree();
+	}
+
 	const Value & operator[](memory_size_type i) const {
 		return m_values[i];
 	}
