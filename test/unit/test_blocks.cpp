@@ -252,6 +252,27 @@ bool b_tree_builder_pipe_test(key_type n) {
 	return true;
 }
 
+bool b_tree_range_report_test() {
+	tpie::blocks::b_tree<size_t> tree;
+	size_t items = 10000;
+
+	tree_type t;
+	t.open();
+
+	for(key_type i = 0; i < items; ++i) {
+		try {
+			t.insert(items-i);
+		} catch (...) {
+			std::stringstream ss;
+			ss << "Exception after " << i << " insertions";
+			TEST_FAIL(ss.str());
+		}
+	}
+
+
+	return true;
+}
+
 int main(int argc, char ** argv) {
 	return tpie::tests(argc, argv)
 	.test(b_tree_test, "b_tree")
@@ -262,5 +283,6 @@ int main(int argc, char ** argv) {
 		  "fanout", static_cast<size_t>(0))
 	.test(b_tree_builder_test, "b_tree_builder", "n", static_cast<key_type>(1000))
 	.test(b_tree_builder_pipe_test, "b_tree_builder_pipe", "n", static_cast<key_type>(1000))
+	.test(b_tree_range_report_test, "b_tree_range_report")
 	;
 }
