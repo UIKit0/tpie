@@ -506,10 +506,9 @@ private:
 			if (block.underfull() && id != m_root) {
 				log_error() << "in_order_dump: Underfull non-root block " << id << std::endl;
 			}
-			for (memory_size_type i = 0; i < block.keys(); ++i) {
+			for (memory_size_type i = 0; i < block.degree(); ++i) {
 				in_order_dump_visit(it, block.child(i), leafDistance-1);
 			}
-			in_order_dump_visit(it, block.child(block.keys()), leafDistance-1);
 		}
 	}
 
