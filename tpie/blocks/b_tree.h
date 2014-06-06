@@ -473,10 +473,9 @@ public:
 	};
 
 	///////////////////////////////////////////////////////////////////////////
-	/// \brief  Iterate through values of the tree in ther range [a;b].
+	/// \brief  Iterate through values of the tree in the range [a;b].
 	///
-	/// \tparam It  An output iterator type that has Value among its
-	///             value types.
+	/// \tparam It  A functor that accepts a leaf_range as a param
 	///////////////////////////////////////////////////////////////////////////
 	template <typename Func>
 	void leaf_range_report(const Key & a, const Key & b, Func func) {
@@ -550,6 +549,12 @@ private:
 	};
 
 public:
+	///////////////////////////////////////////////////////////////////////////
+	/// \brief  Iterate through values of the tree in the range [a;b].
+	///
+	/// \tparam it  An output iterator type that has Value among its
+	///             value types.
+	///////////////////////////////////////////////////////////////////////////
 	template <typename It>
 	void range_report(const Key & a, const Key & b, It it) {
 		it_functor<It> func(it, a, b);
