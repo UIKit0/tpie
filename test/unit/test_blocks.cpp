@@ -22,6 +22,8 @@
 #include <tpie/prime.h>
 #include <tpie/pipelining/b_tree.h>
 #include <numeric>
+#include <boost/random/linear_congruential.hpp>
+#include <set>
 
 typedef size_t key_type;
 typedef tpie::blocks::b_tree<key_type> tree_type;
@@ -79,7 +81,15 @@ struct average_augment {
 	float average() const {
 		return static_cast<float>(sum)/count;
 	}
+
+	bool operator==(const average_augment & other) {
+		return sum == other.sum && count == other.count;
+	}
 };
+
+std::ostream & operator<<(std::ostream & out, const average_augment & a) {
+	return out << "[sum=" << a.sum << "; count=" << a.count << "]";
+}
 
 struct average_augmentor {
 	average_augment operator()(int * first, int * last) const {
@@ -104,10 +114,48 @@ struct average_augmentor {
 	}
 };
 
-	tpie::blocks::b_tree<int, int, std::less<int>, tpie::blocks::identity_key_extract<int>, average_augment , average_augmentor> tree;
 bool b_tree_augmented_test() {
+	typedef tpie::blocks::b_tree<int, int, std::less<int>, tpie::blocks::identity_key_extract<int>, average_augment , average_augmentor> tree_t;
 
-	// stub for unit testing of augmented B trees.
+	size_t items = 10000;
+	size_t mod = 100;
+	boost::rand48 random(42);
+
+	tree_t tree1;
+	std::multiset<int> tree2;
+
+	tree1.open();
+
+	for(key_type i = 0; i < items; ++i) {
+		try {
+			size_t n = random() % mod;
+			tree1.insert(n);
+			tree2.insert(n);
+
+			size_t a = random() % mod;
+			size_t b = random() % mod; b += a;
+			// calculate the correct average
+			average_augment correct;
+			correct.sum = 0;
+			correct.count = 0;
+
+			std::set<int>::iterator begin = tree2.lower_bound(a);
+			std::set<int>::iterator end = tree2.upper_bound(b);
+
+			for(std::set<int>::iterator i = begin; i != end; ++i) {
+				correct.sum += *i;
+				++correct.count;
+			}
+
+			average_augment res = tree1.augment(a, b);
+
+			TEST_ENSURE_EQUALITY(correct, res, "the b_tree did not output the correct result.")
+		} catch (...) {
+			std::stringstream ss;
+			ss << "Exception after " << i << " insertions";
+			TEST_FAIL(ss.str());
+		}
+	}
 
 	return true;
 }
