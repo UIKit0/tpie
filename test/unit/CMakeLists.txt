@@ -42,7 +42,7 @@ add_unittest(atomic basic parallel)
 add_unittest(compressed_stream basic seek seek_2 reopen_1 reopen_2 read_seek truncate truncate_2 position_0 position_1 position_2 position_3 position_4 position_5 position_6 position_7 position_seek uncompressed uncompressed_new
 basic_u seek_u seek_2_u reopen_1_u reopen_2_u read_seek_u truncate_u truncate_2_u position_0_u position_1_u position_2_u position_3_u position_4_u position_5_u position_6_u position_7_u position_seek_u uncompressed_u uncompressed_new_u
 odd_block_size)
-add_unittest(blocks b_tree b_tree_2 augmented_b_tree b_tree_erase b_tree_builder b_tree_builder_pipe b_tree_range_report)
+add_unittest(blocks b_tree b_tree_2 b_tree_augmented b_tree_erase b_tree_builder b_tree_builder_pipe b_tree_range_report)
 add_unittest(disjoint_set basic memory)
 add_unittest(external_priority_queue basic)
 add_unittest(external_queue basic empty_size sized large)

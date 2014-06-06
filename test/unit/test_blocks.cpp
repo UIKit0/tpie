@@ -104,8 +104,8 @@ struct average_augmentor {
 	}
 };
 
-bool augmented_b_tree_test() {
 	tpie::blocks::b_tree<int, int, std::less<int>, tpie::blocks::identity_key_extract<int>, average_augment , average_augmentor> tree;
+bool b_tree_augmented_test() {
 
 	// stub for unit testing of augmented B trees.
 
@@ -277,7 +277,7 @@ int main(int argc, char ** argv) {
 	return tpie::tests(argc, argv)
 	.test(b_tree_test, "b_tree")
 	.test(b_tree_test_2, "b_tree_2", "n", static_cast<key_type>(1000))
-	.test(augmented_b_tree_test, "augmented_b_tree")
+	.test(b_tree_augmented_test, "b_tree_augmented")
 	.test(b_tree_erase_test, "b_tree_erase",
 		  "n", static_cast<key_type>(1000),
 		  "fanout", static_cast<size_t>(0))
