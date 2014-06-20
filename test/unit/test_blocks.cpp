@@ -24,6 +24,7 @@
 #include <numeric>
 #include <boost/random/linear_congruential.hpp>
 #include <set>
+#include <boost/function_output_iterator.hpp>
 
 typedef size_t key_type;
 typedef tpie::blocks::b_tree<key_type> tree_type;
@@ -300,16 +301,57 @@ bool b_tree_builder_pipe_test(key_type n) {
 	return true;
 }
 
-bool b_tree_range_report_test() {
-	tpie::blocks::b_tree<size_t> tree;
-	size_t items = 10000;
+struct range_report_tester {
+	range_report_tester(size_t a, size_t b, bool & correct, size_t & count) : a(a), b(b), correct(correct), count(count) {}
 
-	tree_type t;
-	t.open();
+	void operator()(const size_t & x) {
+		++count;
+		tpie::log_debug() << "Range reporter given element " << x << std::endl;
+		if(!(a <= x && x <= b)) {
+			correct = false;
+			tpie::log_error() << "Range reporter given element" << x << " which is outside the range [" << a << "; " << b << "]." << std::endl;
+		}
+	}
+private:
+	size_t a, b;
+	bool & correct;
+	size_t & count;
+};
+
+bool b_tree_range_report_test() {
+	size_t items = 10000;
+	boost::rand48 random(42);
+
+	tpie::blocks::b_tree<size_t> tree1;
+	std::multiset<size_t> tree2;
+
+	tree1.open();
 
 	for(key_type i = 0; i < items; ++i) {
 		try {
-			t.insert(items-i);
+			size_t n = random() % items;
+			size_t a = random() % items;
+			size_t b = random() % items;
+			if(a > b) std::swap(a, b);
+
+			tree1.insert(n);
+			tree2.insert(n);
+
+			bool correct = true;
+			size_t count = 0;
+			size_t correctCount = std::distance(tree2.lower_bound(a), tree2.upper_bound(b));
+
+			range_report_tester tester(a, b, correct, count);
+			tree1.range_report(a, b, boost::make_function_output_iterator(tester));
+
+			TEST_ENSURE(correct, "range_report reported an element outside the range");
+
+			if(count != correctCount) {
+				tpie::log_error() << "range_report did not report the correct number of elements" << std::endl;
+				tpie::log_error() << "Element: " << i << std::endl;
+				tpie::log_error() << "Range: [" << a << "; " << b << "]" << std::endl;
+				tpie::log_error() << count << " != " << correctCount << std::endl;
+			}
 		} catch (...) {
 			std::stringstream ss;
 			ss << "Exception after " << i << " insertions";
