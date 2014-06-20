@@ -512,9 +512,9 @@ private:
 		memory_size_type i, j;
 		// find first key k where a <= k
 		for(i = 0; i != block.keys(); ++i)
-			if(!m_comp(a, block.key(i))) break;
+			if(!m_comp(block.key(i), a)) break;
 
-		// find the first key k where !(k <= b)
+		// find the first key k where b < k
 		for(j = i; j != block.keys(); ++j)
 			if(m_comp(b, block.key(j))) break;
 
