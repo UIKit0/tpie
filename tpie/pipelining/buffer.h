@@ -34,6 +34,36 @@ namespace pipelining {
 
 namespace bits {
 
+///////////////////////////////////////////////////////////////////////////////
+/// \brief Input node for buffer.
+///////////////////////////////////////////////////////////////////////////////
+template <typename T>
+class buffer_input_t: public node {
+public:
+	typedef T item_type;
+
+	buffer_input_t(const node_token & token)
+		: node(token)
+	{
+		set_name("Storing items", PRIORITY_INSIGNIFICANT);
+		set_minimum_memory(tpie::file_stream<item_type>::memory_usage());
+		set_plot_options(PLOT_BUFFERED | PLOT_SIMPLIFIED_HIDE);
+	}
+
+	virtual void propagate() override {
+		m_queue = tpie::tpie_new<tpie::file_stream<item_type> >();
+		m_queue->open();
+		forward("queue", m_queue);
+	}
+
+	void push(const T & item) {
+		m_queue->write(item);
+	}
+
+private:
+	tpie::file_stream<T> * m_queue;
+};
+
 template <typename T>
 class buffer_pull_output_t: public node {
 	file_stream<T> * m_queue;
@@ -66,36 +96,6 @@ public:
 		tpie_delete(m_queue);
 		m_queue=NULL;
 	}
-};
-
-///////////////////////////////////////////////////////////////////////////////
-/// \brief Input node for buffer.
-///////////////////////////////////////////////////////////////////////////////
-template <typename T>
-class buffer_input_t: public node {
-public:
-	typedef T item_type;
-
-	buffer_input_t(const node_token & token)
-		: node(token)
-	{
-		set_name("Storing items", PRIORITY_INSIGNIFICANT);
-		set_minimum_memory(tpie::file_stream<item_type>::memory_usage());
-		set_plot_options(PLOT_BUFFERED | PLOT_SIMPLIFIED_HIDE);
-	}
-
-	virtual void propagate() override {
-		m_queue = tpie::tpie_new<tpie::file_stream<item_type> >();
-		m_queue->open();
-		forward("queue", m_queue);
-	}
-
-	void push(const T & item) {
-		m_queue->write(item);
-	}
-
-private:
-	tpie::file_stream<T> * m_queue;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -185,42 +185,24 @@ private:
 	passive_buffer & operator=(const passive_buffer &);
 };
 
-template <typename dest_t>
-class buffer_t: public node {
+template <typename R1,
+		 template <typename dest_t> class R2>
+class phase_boundary_factory : public factory_base {
 public:
-	typedef typename push_type<dest_t>::type item_type;
-	typedef bits::buffer_input_t<item_type> input_t;
-	typedef bits::buffer_output_t<dest_t> output_t;
+	template <typename dest_t>
+	struct constructed {
+		typedef R1 type;
+	};
 
-	buffer_t(const dest_t & dest)
-		: input_token()
-		, input(input_token)
-		, output(dest, input_token)
-	{
-		add_push_destination(input);
-		set_name("Buffer", PRIORITY_INSIGNIFICANT);
-		set_plot_options(PLOT_BUFFERED);
+	template <typename dest_t>
+	typename constructed<dest_t>::type construct(const dest_t & dest) const {
+		node_token tok;
+		return R1(tok, new R2<dest_t>(dest, tok));
 	}
 
-	buffer_t(const buffer_t &o)
-		: node(o)
-		, input_token(o.input_token)
-		, input(o.input)
-		, output(o.output)
-	{
-	}
-
-	virtual void push(item_type item) {
-		input.push(item);
-	}
-
-	node_token input_token;
-
-	input_t input;
-	output_t output;
 };
 
-typedef pipe_middle<factory_0<buffer_t> > buffer;
+typedef pipe_middle<phase_boundary_factory<bits::buffer_input_t, bits::buffer_output_t> > buffer;
 
 } // namespace pipelining
 
