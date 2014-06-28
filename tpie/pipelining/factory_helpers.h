@@ -45,8 +45,13 @@ public:
 	};
 
 	template <typename dest_t>
-	typename constructed<dest_t>::type construct(dest_t && dest) const {
+	typename constructed<dest_t>::type construct(dest_t && dest) const & {
 		return invoker<sizeof...(T)>::go(std::forward<dest_t>(dest), *this);
+	}
+
+	template <typename dest_t>
+	typename constructed<dest_t>::type construct(dest_t && dest) && {
+		return invoker<sizeof...(T)>::go(std::forward<dest_t>(dest), std::move(*this));
 	}
 
 private:
@@ -60,6 +65,12 @@ private:
 		go(dest_t && dest, const factory & parent) {
 			return invoker<N-1, N-1, S...>::go(std::forward<dest_t>(dest), parent);
 		}
+
+		template <typename dest_t>
+		static typename constructed<dest_t>::type
+		go(dest_t && dest, factory && parent) {
+			return invoker<N-1, N-1, S...>::go(std::forward<dest_t>(dest), std::move(parent));
+		}
 	};
 
 	template <size_t... S>
@@ -71,6 +82,17 @@ private:
 			node_token tok = dest.get_token();
 			typename constructed<dest_t>::type
 				r(std::forward<dest_t>(dest), std::get<S>(parent.m_v)...);
+			parent.init_node(r);
+			parent.add_default_edge(r, tok);
+			return r;
+		}
+
+		template <typename dest_t>
+		static typename constructed<dest_t>::type
+		go(dest_t && dest, factory && parent) {
+			node_token tok = dest.get_token();
+			typename constructed<dest_t>::type
+				r(std::forward<dest_t>(dest), std::get<S>(std::move(parent.m_v))...);
 			parent.init_node(r);
 			parent.add_default_edge(r, tok);
 			return r;
@@ -96,8 +118,13 @@ public:
 	};
 
 	template <typename dest_t>
-	typename constructed<dest_t>::type construct(dest_t && dest) const {
+	typename constructed<dest_t>::type construct(dest_t && dest) const & {
 		return invoker<sizeof...(T)>::go(std::forward<dest_t>(dest), *this);
+	}
+
+	template <typename dest_t>
+	typename constructed<dest_t>::type construct(dest_t && dest) && {
+		return invoker<sizeof...(T)>::go(std::forward<dest_t>(dest), std::move(*this));
 	}
 
 private:

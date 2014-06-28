@@ -75,7 +75,7 @@ template <typename dest_t>
 class hello_world_type : public tp::node {
 public:
 	hello_world_type(dest_t dest)
-		: dest(dest) {}
+		: dest(std::move(dest)) {}
 
 	void push(const size_t & item) {
 		if ((item % 2) == 0) {
@@ -158,7 +158,7 @@ public:
 	typedef size_t item_type;
 
 	hello_world_type(dest_t dest)
-		: dest(dest)
+		: dest(std::move(dest))
 	{
 		// The default name is the class name, capitalized,
 		// with underscores replaced by spaces,
@@ -288,8 +288,8 @@ class reverser_type : public tpie::pipelining::node {
 public:
 	typedef point3d item_type;
 
-	reverser_type(const dest_t & dest)
-		: dest(dest)
+	reverser_type(dest_t dest)
+		: dest(std::move(dest))
 	{
 		add_push_destination(dest);
 		set_name("Reverser",
@@ -344,8 +344,8 @@ private:
 template <typename dest_type>
 class reverser_output_type: public tpie::pipelining::node {
 public:
-	reverser_output_type(const dest_type & dest, const tpie::pipelining::node_token & input_token, tpie::stack<int> * stack)
-		: dest(dest)
+	reverser_output_type(dest_type dest, const tpie::pipelining::node_token & input_token, tpie::stack<int> * stack)
+		: dest(std::move(dest))
 		, stack(stack)
 	{
 		add_dependency(input_token);

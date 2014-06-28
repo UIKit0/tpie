@@ -102,11 +102,11 @@ class reverser_output_t: public node {
 public:
 	typedef typename push_type<dest_t>::type item_type;
 
-	reverser_output_t(const dest_t & dest, const node_token & input_token)
-		: dest(dest)
+	reverser_output_t(dest_t dest, const node_token & input_token)
+		: dest(std::move(dest))
 	{
 		add_dependency(input_token);
-		add_push_destination(dest);
+		add_push_destination(this->dest);
 		set_name("Output reversed", PRIORITY_INSIGNIFICANT);
 		set_minimum_memory(this->m_stack->memory_usage());
 	}
@@ -140,8 +140,8 @@ class internal_reverser_output_t: public node {
 public:
 	typedef typename push_type<dest_t>::type item_type;
 
-	internal_reverser_output_t(const dest_t & dest, const node_token & input_token)
-		: dest(dest)
+	internal_reverser_output_t(dest_t dest, const node_token & input_token)
+		: dest(std::move(dest))
 	{
 		add_dependency(input_token);
 		add_push_destination(dest);

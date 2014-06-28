@@ -37,7 +37,7 @@ class ostream_logger_t : public node {
 public:
 	typedef typename push_type<dest_t>::type item_type;
 
-	inline ostream_logger_t(const dest_t & dest, std::ostream * log) : dest(dest), log(log), begun(false), ended(false) {
+	inline ostream_logger_t(dest_t dest, std::ostream * log) : dest(std::move(dest)), log(log), begun(false), ended(false) {
 		add_push_destination(dest);
 		set_name("Log", PRIORITY_INSIGNIFICANT);
 	}
@@ -73,7 +73,7 @@ class identity_t : public node {
 public:
 	typedef typename push_type<dest_t>::type item_type;
 
-	inline identity_t(const dest_t & dest) : dest(dest) {
+	inline identity_t(dest_t dest) : dest(std::move(dest)) {
 		add_push_destination(dest);
 	}
 
@@ -206,8 +206,8 @@ public:
 		dummydest_t<item_type> dummydest;
 		puller_t puller;
 
-		inline pusher_t(const dest_t & dest, const pullfact_t & pullfact)
-			: dest(dest)
+		inline pusher_t(dest_t dest, const pullfact_t & pullfact)
+			: dest(std::move(dest))
 			, puller(pullfact.construct(dummydest))
 		{
 			add_push_destination(dest);
@@ -241,7 +241,7 @@ public:
 	public:
 		typedef typename push_type<dest_t>::type item_type;
 
-		inline type(const dest_t & dest, const fact2_t & fact2) : dest(dest), dest2(fact2.construct()) {
+		inline type(dest_t dest, const fact2_t & fact2) : dest(std::move(dest)), dest2(fact2.construct()) {
 			add_push_destination(dest);
 			add_push_destination(dest2);
 		}
@@ -359,7 +359,7 @@ public:
 	public:
 		type(dest_t dest, IT to)
 			: i(to)
-			, dest(dest)
+			, dest(std::move(dest))
 		{
 			add_pull_source(dest);
 		}
@@ -383,7 +383,7 @@ public:
 		dest_t dest;
 	public:
 		typedef typename push_type<dest_t>::type item_type;
-		type(const dest_t & dest, const F & functor): functor(functor), dest(dest) {
+		type(dest_t dest, const F & functor): functor(functor), dest(std::move(dest)) {
 			add_push_destination(dest);
 		}
 
@@ -406,7 +406,7 @@ public:
 		dest_t dest;
 	public:
 		typedef typename push_type<dest_t>::type item_type;
-		type(const dest_t & dest, const F & functor): functor(functor), dest(dest) {
+		type(dest_t dest, const F & functor): functor(functor), dest(std::move(dest)) {
 			add_push_destination(dest);
 		}
 

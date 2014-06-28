@@ -46,7 +46,7 @@ public:
 	public:
 		typedef typename push_type<dest_t>::type item_type;
 
-		inline type(const dest_t & dest, const fact_t & fact) : dest(dest), with(fact.construct()) {
+		inline type(dest_t dest, const fact_t & fact) : dest(std::move(dest)), with(fact.construct()) {
 			add_push_destination(dest);
 			add_pull_source(with);
 		}

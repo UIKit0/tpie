@@ -36,9 +36,8 @@ using namespace tpie;
 using namespace tpie::pipelining;
 using namespace std;
 
-template <typename src_pipe_t>
+template <typename src_fact_t>
 class add_t {
-	typedef typename src_pipe_t::factory_type src_fact_t;
 	typedef typename src_fact_t::constructed_type src_t;
 
 public:
@@ -49,9 +48,9 @@ public:
 	public:
 		typedef int item_type;
 
-		type(dest_t dest, src_pipe_t srcpipe)
-			: dest(dest)
-			, src(srcpipe.factory.construct())
+		type(dest_t dest, src_fact_t srcfact)
+			: dest(std::move(dest))
+			, src(srcfact.construct())
 		{
 			add_push_destination(dest);
 			add_pull_source(src);
@@ -64,9 +63,9 @@ public:
 };
 
 template <typename src_pipe_t>
-inline pipe_middle<tempfactory_1<add_t<src_pipe_t>, src_pipe_t> >
-add(src_pipe_t srcpipe) {
-	return tempfactory_1<add_t<src_pipe_t>, src_pipe_t>(std::move(srcpipe));
+inline pipe_middle<tempfactory_1<add_t<typename src_pipe_t::factory_type>, typename src_pipe_t::factory_type> >
+add(src_pipe_t && srcpipe) {
+	return tempfactory_1<add_t<typename src_pipe_t::factory_type>, typename src_pipe_t::factory_type>(std::move(srcpipe.factory));
 }
 
 void go() {

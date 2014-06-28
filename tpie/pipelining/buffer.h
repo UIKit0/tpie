@@ -76,8 +76,8 @@ class buffer_input_t: public node {
 public:
 	typedef T item_type;
 
-	buffer_input_t(const node_token & token)
-		: node(token)
+	buffer_input_t(node_token && token)
+		: node(std::move(token))
 	{
 		set_name("Storing items", PRIORITY_INSIGNIFICANT);
 		set_minimum_memory(tpie::file_stream<item_type>::memory_usage());
@@ -106,8 +106,8 @@ class buffer_output_t: public node {
 public:
 	typedef typename push_type<dest_t>::type item_type;
 
-	buffer_output_t(const dest_t &dest, const node_token & input_token)
-		: dest(dest)
+	buffer_output_t(dest_t dest, const node_token & input_token)
+		: dest(std::move(dest))
 	{
 		add_dependency(input_token);
 		add_push_destination(dest);
@@ -163,19 +163,19 @@ public:
 	passive_buffer() {}
 
 	inline input_t raw_input() {
-		return input_t(input_token);
+		return input_t(std::move(input_token));
 	}
 
 	inline output_t raw_output() {
-		return output_t(input_token);
+		return output_t(input_token); // TODO input_token has moved
 	}
 
 	inline inputpipe_t input() {
-		return inputfact_t(input_token);
+		return inputfact_t(std::move(input_token));
 	}
 
 	inline outputpipe_t output() {
-		return outputfact_t(input_token);
+		return outputfact_t(input_token); // TODO input_token has moved
 	}
 
 private:
@@ -192,21 +192,21 @@ public:
 	typedef bits::buffer_input_t<item_type> input_t;
 	typedef bits::buffer_output_t<dest_t> output_t;
 
-	buffer_t(const dest_t & dest)
+	buffer_t(dest_t dest)
 		: input_token()
 		, input(input_token)
-		, output(dest, input_token)
+		, output(std::move(dest), input_token)
 	{
 		add_push_destination(input);
 		set_name("Buffer", PRIORITY_INSIGNIFICANT);
 		set_plot_options(PLOT_BUFFERED);
 	}
 
-	buffer_t(const buffer_t &o)
-		: node(o)
-		, input_token(o.input_token)
-		, input(o.input)
-		, output(o.output)
+	buffer_t(buffer_t && o)
+		: node(std::move(o))
+		, input_token(std::move(o.input_token))
+		, input(std::move(o.input))
+		, output(std::move(o.output))
 	{
 	}
 

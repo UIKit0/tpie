@@ -84,8 +84,8 @@ class input_nodes_t : public P::node {
 public:
 	typedef node item_type;
 
-	inline input_nodes_t(const dest_t & dest, size_t nodes)
-		: dest(dest)
+	inline input_nodes_t(dest_t dest, size_t nodes)
+		: dest(std::move(dest))
 		, nodes(nodes)
 	{
 		set_steps(nodes);
@@ -119,8 +119,8 @@ class count_t : public P::node {
 	byparent_t byparent;
 
 public:
-	count_t(const dest_t & dest, const byid_t & byid, const byparent_t & byparent)
-		: dest(dest), byid(byid), byparent(byparent)
+	count_t(dest_t dest, const byid_t & byid, const byparent_t & byparent)
+		: dest(std::move(dest)), byid(byid), byparent(byparent)
 	{
 		add_push_destination(dest);
 		add_pull_source(byid);

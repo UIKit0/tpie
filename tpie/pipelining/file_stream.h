@@ -41,7 +41,7 @@ class input_t : public node {
 public:
 	typedef typename push_type<dest_t>::type item_type;
 
-	inline input_t(const dest_t & dest, file_stream<item_type> & fs) : dest(dest), fs(fs) {
+	inline input_t(dest_t dest, file_stream<item_type> & fs) : dest(std::move(dest)), fs(fs) {
 		add_push_destination(dest);
 		set_name("Read", PRIORITY_INSIGNIFICANT);
 		set_minimum_memory(fs.memory_usage());
@@ -159,7 +159,7 @@ public:
 	class type: public node {
 	public:
 		typedef T item_type;
-		type(const dest_t & dest, file_stream<item_type> & fs): fs(fs), dest(dest) {
+		type(dest_t dest, file_stream<item_type> & fs): fs(fs), dest(std::move(dest)) {
 			add_push_destination(dest);
 			set_minimum_memory(fs.memory_usage());
 		}

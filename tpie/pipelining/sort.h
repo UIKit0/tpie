@@ -343,9 +343,9 @@ public:
 		sort_output_t<pred_type, dest_t> output(std::forward<dest_t>(dest),
 				self().template get_pred<item_type>());
 		this->init_sub_node(output);
-		sort_calc_t<item_type, pred_type> calc(output);
+		sort_calc_t<item_type, pred_type> calc(std::move(output));
 		this->init_sub_node(calc);
-		sort_input_t<item_type, pred_type> input(calc);
+		sort_input_t<item_type, pred_type> input(std::move(calc));
 		this->init_sub_node(input);
 
 		return input;

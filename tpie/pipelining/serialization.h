@@ -43,8 +43,8 @@ class input_t : public node {
 public:
 	typedef typename push_type<dest_t>::type item_type;
 
-	input_t(const dest_t & dest, serialization_reader * rd)
-		: dest(dest)
+	input_t(dest_t dest, serialization_reader * rd)
+		: dest(std::move(dest))
 		, rd(rd)
 	{
 		set_name("Serialization reader");
@@ -126,8 +126,8 @@ class rev_output_t : public node {
 public:
 	typedef typename push_type<dest_t>::type item_type;
 
-	rev_output_t(const dest_t & dest)
-		: dest(dest)
+	rev_output_t(dest_t dest)
+		: dest(std::move(dest))
 		, m_stack(0)
 	{
 		this->set_name("Serialization reverse reader");
@@ -177,8 +177,8 @@ class rev_input_t<rev_output_t<output_dest_t> > : public node {
 public:
 	typedef typename push_type<dest_t>::type item_type;
 
-	rev_input_t(const dest_t & dest)
-		: dest(dest)
+	rev_input_t(dest_t dest)
+		: dest(std::move(dest))
 		, wr()
 		, items(0)
 	{

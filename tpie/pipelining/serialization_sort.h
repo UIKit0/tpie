@@ -138,9 +138,9 @@ public:
 	typedef typename Traits::sorter_t sorter_t;
 	typedef typename Traits::sorterptr sorterptr;
 
-	sort_output_t(const dest_t & dest, pred_type pred)
+	sort_output_t(dest_t dest, pred_type pred)
 		: p_t(pred)
-		, dest(dest)
+		, dest(std::move(dest))
 	{
 		this->add_push_destination(dest);
 		this->set_minimum_memory(sorter_t::minimum_memory_phase_3());
@@ -267,7 +267,7 @@ public:
 
 	sort_input_t(sort_calc_t<Traits> dest)
 		: m_sorter(dest.get_sorter())
-		, dest(dest)
+		, dest(std::move(dest))
 	{
 		this->dest.set_input_node(*this);
 		set_minimum_memory(sorter_t::minimum_memory_phase_1());
