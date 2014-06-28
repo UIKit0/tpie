@@ -223,10 +223,10 @@ public:
 	{
 	}
 
-	// This copy constructor has two uses:
+	// This move constructor has two uses:
 	// 1. Simple case when a node is copied (freshToken = false)
 	// 2. Advanced case when a node is being constructed with a specific token (freshToken = true)
-	inline node_token(const node_token & other, val_t newOwner, bool freshToken = false)
+	node_token(node_token && other, val_t newOwner, bool freshToken = false)
 		: m_tokens(other.m_tokens->find_authority())
 		, m_id(other.id())
 		, m_free(false)

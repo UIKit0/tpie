@@ -350,22 +350,24 @@ protected:
 	{
 	}
 
+	node(const node & other) = delete;
+
 	///////////////////////////////////////////////////////////////////////////
-	/// \brief Copy constructor. We need to define this explicitly since the
+	/// \brief Move constructor. We need to define this explicitly since the
 	/// node_token needs to know its new owner.
 	///////////////////////////////////////////////////////////////////////////
-	inline node(const node & other)
-		: token(other.token, this)
+	node(node && other)
+		: token(std::move(other.token), this)
 		, m_parameters(other.m_parameters)
 		, m_availableMemory(other.m_availableMemory)
 		, m_stepsLeft(other.m_stepsLeft)
-		, m_pi(other.m_pi)
+		, m_pi(std::move(other.m_pi))
 		, m_state(other.m_state)
 		, m_plotOptions(other.m_plotOptions)
 	{
 		if (m_state != STATE_FRESH) 
 			throw call_order_exception(
-				"Tried to copy pipeline node after prepare had been called");
+				"Tried to move pipeline node after prepare had been called");
 	}
 
 #ifdef TPIE_CPP_RVALUE_REFERENCE
@@ -391,8 +393,8 @@ protected:
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Constructor using a given fresh node_token.
 	///////////////////////////////////////////////////////////////////////////
-	inline node(const node_token & token)
-		: token(token, this, true)
+	inline node(node_token && token)
+		: token(std::move(token), this, true)
 		, m_parameters()
 		, m_availableMemory(0)
 		, m_stepsLeft(0)
