@@ -352,24 +352,6 @@ protected:
 
 	node(const node & other) = delete;
 
-	///////////////////////////////////////////////////////////////////////////
-	/// \brief Move constructor. We need to define this explicitly since the
-	/// node_token needs to know its new owner.
-	///////////////////////////////////////////////////////////////////////////
-	node(node && other)
-		: token(std::move(other.token), this)
-		, m_parameters(other.m_parameters)
-		, m_availableMemory(other.m_availableMemory)
-		, m_stepsLeft(other.m_stepsLeft)
-		, m_pi(std::move(other.m_pi))
-		, m_state(other.m_state)
-		, m_plotOptions(other.m_plotOptions)
-	{
-		if (m_state != STATE_FRESH) 
-			throw call_order_exception(
-				"Tried to move pipeline node after prepare had been called");
-	}
-
 #ifdef TPIE_CPP_RVALUE_REFERENCE
 	///////////////////////////////////////////////////////////////////////////
 	/// \brief Move constructor. We need to define this explicitly since the

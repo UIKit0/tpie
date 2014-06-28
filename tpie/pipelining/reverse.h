@@ -41,8 +41,8 @@ class reverser_input_t: public node {
 public:
 	typedef T item_type;
 
-	inline reverser_input_t(const node_token & token)
-		: node(token)
+	inline reverser_input_t(node_token && token)
+		: node(std::move(token))
 	{
 		set_name("Store items", PRIORITY_SIGNIFICANT);
 		set_minimum_memory(this->m_stack->memory_usage());
@@ -260,20 +260,20 @@ public:
 	typedef reverser_output_t<dest_t> output_t;
 	typedef reverser_input_t<item_type> input_t;
 
-	inline reverser_t(const dest_t & dest)
+	inline reverser_t(dest_t dest)
 		: input_token()
-		, input(input_token)
-		, output(dest, input_token)
+		, input(std::move(input_token))
+		, output(std::move(dest), input_token) // TODO input_token has moved away
 	{
 		add_push_destination(input);
 		set_plot_options(PLOT_BUFFERED);
 	}
 
-	inline reverser_t(const reverser_t & o)
-		: node(o)
-		, input_token(o.input_token)
-		, input(o.input)
-		, output(o.output)
+	inline reverser_t(reverser_t && o)
+		: node(std::move(o))
+		, input_token(std::move(o.input_token))
+		, input(std::move(o.input))
+		, output(std::move(o.output))
 	{
 	}
 

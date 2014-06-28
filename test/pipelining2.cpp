@@ -66,7 +66,7 @@ public:
 template <typename src_pipe_t>
 inline pipe_middle<tempfactory_1<add_t<src_pipe_t>, src_pipe_t> >
 add(src_pipe_t srcpipe) {
-	return tempfactory_1<add_t<src_pipe_t>, src_pipe_t>(srcpipe);
+	return tempfactory_1<add_t<src_pipe_t>, src_pipe_t>(std::move(srcpipe));
 }
 
 void go() {

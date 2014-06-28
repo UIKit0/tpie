@@ -145,11 +145,11 @@ public:
 	/** Smart pointer to sorter_t. */
 	typedef typename sorter_t::ptr sorterptr;
 
-	inline sort_output_t(const dest_t & dest, pred_t pred)
+	sort_output_t(dest_t dest, pred_t pred)
 		: p_t(pred)
-		, dest(dest)
+		, dest(std::move(dest))
 	{
-		this->add_push_destination(dest);
+		this->add_push_destination(this->dest);
 		this->set_minimum_memory(sorter_t::minimum_memory_phase_3());
 		this->set_maximum_memory(sorter_t::maximum_memory_phase_3());
 		this->set_name("Write sorted output", PRIORITY_INSIGNIFICANT);
@@ -196,16 +196,16 @@ public:
 
 	typedef sort_output_base<T, pred_t> Output;
 
-	inline sort_calc_t(const sort_calc_t & other)
-		: node(other)
+	inline sort_calc_t(sort_calc_t && other)
+		: node(std::move(other))
 		, m_sorter(other.m_sorter)
-		, dest(other.dest)
+		, dest(std::move(other.dest))
 	{
 	}
 
 	template <typename dest_t>
-	inline sort_calc_t(dest_t dest)
-		: dest(new dest_t(dest))
+	sort_calc_t(dest_t dest)
+		: dest(new dest_t(std::move(dest)))
 	{
 		m_sorter = this->dest->get_sorter();
 		this->dest->set_calc_node(*this);
@@ -278,7 +278,7 @@ public:
 
 	inline sort_input_t(sort_calc_t<T, pred_t> dest)
 		: m_sorter(dest.get_sorter())
-		, dest(dest)
+		, dest(std::move(dest))
 	{
 		this->dest.set_input_node(*this);
 		set_minimum_memory(sorter_t::minimum_memory_phase_1());
@@ -336,11 +336,12 @@ public:
 	};
 
 	template <typename dest_t>
-	typename constructed<dest_t>::type construct(const dest_t & dest) const {
+	typename constructed<dest_t>::type construct(dest_t && dest) const {
 		typedef typename push_type<dest_t>::type item_type;
 		typedef typename constructed<dest_t>::pred_type pred_type;
 
-		sort_output_t<pred_type, dest_t> output(dest, self().template get_pred<item_type>());
+		sort_output_t<pred_type, dest_t> output(std::forward<dest_t>(dest),
+				self().template get_pred<item_type>());
 		this->init_sub_node(output);
 		sort_calc_t<item_type, pred_type> calc(output);
 		this->init_sub_node(calc);

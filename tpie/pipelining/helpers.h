@@ -37,7 +37,7 @@ class ostream_logger_t : public node {
 public:
 	typedef typename push_type<dest_t>::type item_type;
 
-	inline ostream_logger_t(const dest_t & dest, std::ostream & log) : dest(dest), log(log), begun(false), ended(false) {
+	inline ostream_logger_t(const dest_t & dest, std::ostream * log) : dest(dest), log(log), begun(false), ended(false) {
 		add_push_destination(dest);
 		set_name("Log", PRIORITY_INSIGNIFICANT);
 	}
@@ -51,19 +51,19 @@ public:
 	}
 	inline void push(const item_type & item) {
 		if (!begun) {
-			log << "WARNING: push() called before begin(). Calling begin on rest of pipeline." << std::endl;
+			*log << "WARNING: push() called before begin(). Calling begin on rest of pipeline." << std::endl;
 			begin();
 		}
 		if (ended) {
-			log << "WARNING: push() called after end()." << std::endl;
+			*log << "WARNING: push() called after end()." << std::endl;
 			ended = false;
 		}
-		log << "pushing " << item << std::endl;
+		*log << "pushing " << item << std::endl;
 		dest.push(item);
 	}
 private:
 	dest_t dest;
-	std::ostream & log;
+	std::ostream * log;
 	bool begun;
 	bool ended;
 };
@@ -300,9 +300,9 @@ public:
 		type(dest_t dest, IT from, IT to)
 			: i(from)
 			, till(to)
-			, dest(dest)
+			, dest(std::move(dest))
 		{
-			add_push_destination(dest);
+			add_push_destination(this->dest);
 		}
 
 		virtual void go() override {
@@ -420,9 +420,9 @@ public:
 
 } // namespace bits
 
-inline pipe_middle<factory_1<bits::ostream_logger_t, std::ostream &> >
+inline pipe_middle<factory_1<bits::ostream_logger_t, std::ostream *> >
 cout_logger() {
-	return factory_1<bits::ostream_logger_t, std::ostream &>(std::cout);
+	return factory_1<bits::ostream_logger_t, std::ostream *>(&std::cout);
 }
 
 typedef pipe_middle<factory_0<bits::identity_t> > identity;

@@ -37,7 +37,7 @@ namespace pipelining {
 template <template <typename dest_t> class R, typename... T>
 class factory : public factory_base {
 public:
-	factory(T... v) : m_v(v...) {}
+	factory(T... v) : m_v(std::move(v)...) {}
 
 	template<typename dest_t>
 	struct constructed {
@@ -88,7 +88,7 @@ private:
 template <typename Holder, typename... T>
 class tempfactory : public factory_base {
 public:
-	tempfactory(T... v) : m_v(v...) {}
+	tempfactory(T... v) : m_v(std::move(v)...) {}
 
 	template<typename dest_t>
 	struct constructed {
@@ -138,7 +138,7 @@ class termfactory : public factory_base {
 public:
 	typedef R constructed_type;
 
-	termfactory(T... v) : m_v(v...) {}
+	termfactory(T... v) : m_v(std::move(v)...) {}
 
 	inline R construct() const {
 		return invoker<sizeof...(T)>::go(*this);

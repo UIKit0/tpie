@@ -136,13 +136,13 @@ public:
 	pipeline() {}
 
 	template <typename T>
-	pipeline(const T & from) {
-		*this = from;
+	pipeline(T from) {
+		*this = std::move(from);
 	}
 
 	template <typename T>
-	pipeline & operator=(const T & from) {
-		p.reset(new T(from));
+	pipeline & operator=(T from) {
+		p.reset(new T(std::move(from)));
 		return *this;
 	}
 

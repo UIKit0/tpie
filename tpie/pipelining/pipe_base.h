@@ -82,9 +82,13 @@ public:
 	///
 	/// \sa factory_base::name
 	///////////////////////////////////////////////////////////////////////////
-	inline child_t & name(const std::string & n, priority_type p = PRIORITY_USER) {
+	child_t & name(const std::string & n, priority_type p = PRIORITY_USER) & {
 		self().factory.name(n, p);
 		return self();
+	}
+
+	child_t && name(const std::string & n, priority_type p=PRIORITY_USER) && {
+		return std::move(this->name(n, p));
 	}
 
 	///////////////////////////////////////////////////////////////////////////
@@ -143,11 +147,8 @@ class pipe_end : public bits::pipe_term_base<pipe_end<fact_t>, fact_t> {
 public:
 	typedef fact_t factory_type;
 
-	pipe_end(const pipe_end & other) : factory(other.factory) {}
-	pipe_end(pipe_end & other) : factory(other.factory) {}
-#ifdef TPIE_CPP_RVALUE_REFERENCE
 	pipe_end(pipe_end && other) : factory(std::move(other.factory)) {}
-#endif
+	pipe_end(fact_t fact) : factory(std::move(fact)) {}
 
 	#ifdef DOXYGEN
 	///////////////////////////////////////////////////////////////////////////////
@@ -188,11 +189,8 @@ class pipe_middle : public bits::pipe_nonterm_base<pipe_middle<fact_t> > {
 public:
 	typedef fact_t factory_type;
 
-	pipe_middle(const pipe_middle & other) : factory(other.factory) {}
-	pipe_middle(pipe_middle & other) : factory(other.factory) {}
-#ifdef TPIE_CPP_RVALUE_REFERENCE
 	pipe_middle(pipe_middle && other) : factory(std::move(other.factory)) {}
-#endif
+	pipe_middle(fact_t fact) : factory(std::move(fact)) {}
 
 	#ifdef DOXYGEN
 	///////////////////////////////////////////////////////////////////////////////
@@ -246,11 +244,8 @@ class pipe_begin : public bits::pipe_nonterm_base<pipe_begin<fact_t> > {
 public:
 	typedef fact_t factory_type;
 
-	pipe_begin(const pipe_begin & other) : factory(other.factory) {}
-	pipe_begin(pipe_begin & other) : factory(other.factory) {}
-#ifdef TPIE_CPP_RVALUE_REFERENCE
 	pipe_begin(pipe_begin && other) : factory(std::move(other.factory)) {}
-#endif
+	pipe_begin(fact_t fact) : factory(std::move(fact)) {}
 
 	#ifdef DOXYGEN
 	///////////////////////////////////////////////////////////////////////////////
@@ -277,16 +272,16 @@ public:
 
 	template <typename fact2_t>
 	inline pipe_begin<bits::pair_factory<fact_t, fact2_t> >
-	operator|(const pipe_middle<fact2_t> & r) {
+	operator|(pipe_middle<fact2_t> r) {
 		factory.set_destination_kind_push();
-		return bits::pair_factory<fact_t, fact2_t>(factory, r.factory);
+		return bits::pair_factory<fact_t, fact2_t>(std::move(factory), std::move(r.factory));
 	}
 
 	template <typename fact2_t>
 	inline bits::pipeline_impl<bits::termpair_factory<fact_t, fact2_t> >
-	operator|(const pipe_end<fact2_t> & r) {
+	operator|(pipe_end<fact2_t> r) {
 		factory.set_destination_kind_push();
-		return bits::termpair_factory<fact_t, fact2_t>(factory, r.factory).final();
+		return bits::termpair_factory<fact_t, fact2_t>(std::move(factory), std::move(r.factory)).final();
 	}
 
 	fact_t factory;
@@ -297,11 +292,8 @@ class pullpipe_end : public bits::pipe_nonterm_base<pullpipe_end<fact_t> > {
 public:
 	typedef fact_t factory_type;
 
-	pullpipe_end(const pullpipe_end & other) : factory(other.factory) {}
-	pullpipe_end(pullpipe_end & other) : factory(other.factory) {}
-#ifdef TPIE_CPP_RVALUE_REFERENCE
 	pullpipe_end(pullpipe_end && other) : factory(std::move(other.factory)) {}
-#endif
+	pullpipe_end(fact_t fact) : factory(std::move(fact)) {}
 
 	#ifdef DOXYGEN
 	///////////////////////////////////////////////////////////////////////////////
@@ -334,11 +326,8 @@ class pullpipe_middle : public bits::pipe_nonterm_base<pullpipe_middle<fact_t> >
 public:
 	typedef fact_t factory_type;
 
-	pullpipe_middle(const pullpipe_middle & other) : factory(other.factory) {}
-	pullpipe_middle(pullpipe_middle & other) : factory(other.factory) {}
-#ifdef TPIE_CPP_RVALUE_REFERENCE
 	pullpipe_middle(pullpipe_middle && other) : factory(std::move(other.factory)) {}
-#endif
+	pullpipe_middle(fact_t fact) : factory(std::move(fact)) {}
 
 	#ifdef DOXYGEN
 	///////////////////////////////////////////////////////////////////////////////
@@ -387,11 +376,9 @@ class pullpipe_begin : public bits::pipe_term_base<pullpipe_begin<fact_t>, fact_
 public:
 	typedef fact_t factory_type;
 
-	pullpipe_begin(const pullpipe_begin & other) : factory(other.factory) {}
-	pullpipe_begin(pullpipe_begin & other) : factory(other.factory) {}
-#ifdef TPIE_CPP_RVALUE_REFERENCE
 	pullpipe_begin(pullpipe_begin && other) : factory(std::move(other.factory)) {}
-#endif
+	pullpipe_begin(const pullpipe_begin & other) = delete;
+	pullpipe_begin(fact_t fact) : factory(std::move(fact)) {}
 
 	#ifdef DOXYGEN
 	///////////////////////////////////////////////////////////////////////////////
@@ -418,18 +405,18 @@ public:
 
 	template <typename fact2_t>
 	inline pullpipe_begin<bits::termpair_factory<fact2_t, fact_t> >
-	operator|(const pullpipe_middle<fact2_t> & r) {
-		fact2_t f = r.factory;
+	operator|(pullpipe_middle<fact2_t> r) {
+		fact2_t f = std::move(r.factory);
 		f.set_destination_kind_pull();
-		return bits::termpair_factory<fact2_t, fact_t>(f, factory);
+		return bits::termpair_factory<fact2_t, fact_t>(std::move(f), std::move(factory));
 	}
 
 	template <typename fact2_t>
 	inline bits::pipeline_impl<bits::termpair_factory<fact2_t, fact_t> >
-	operator|(const pullpipe_end<fact2_t> & r) {
-		fact2_t f = r.factory;
+	operator|(pullpipe_end<fact2_t> r) {
+		fact2_t f = std::move(r.factory);
 		f.set_destination_kind_pull();
-		return bits::termpair_factory<fact2_t, fact_t>(f, factory).final();
+		return bits::termpair_factory<fact2_t, fact_t>(std::move(f), std::move(factory)).final();
 	}
 
 	fact_t factory;
